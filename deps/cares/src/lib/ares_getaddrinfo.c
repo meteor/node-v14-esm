@@ -430,20 +430,16 @@ static int file_lookup(struct host_query *hquery)
   FILE *fp;
   int error;
   int status;
-  char *path_hosts = NULL;
+  const char *path_hosts = NULL;
 
   if (hquery->hints.ai_flags & ARES_AI_ENVHOSTS)
     {
-      path_hosts = ares_strdup(getenv("CARES_HOSTS"));
-      if (!path_hosts)
-        return ARES_ENOMEM;
+      path_hosts = getenv("CARES_HOSTS");
     }
 
   if (hquery->channel->hosts_path)
     {
-      path_hosts = ares_strdup(hquery->channel->hosts_path);
-      if (!path_hosts)
-        return ARES_ENOMEM;
+      path_hosts = hquery->channel->hosts_path;
     }
 
   if (!path_hosts)
@@ -477,15 +473,15 @@ static int file_lookup(struct host_query *hquery)
         return ARES_ENOTFOUND;
 
       strcat(PATH_HOSTS, WIN_PATH_HOSTS);
+      path_hosts = PATH_HOSTS;
+
 #elif defined(WATT32)
       const char *PATH_HOSTS = _w32_GetHostsFile();
 
       if (!PATH_HOSTS)
         return ARES_ENOTFOUND;
 #endif
-      path_hosts = ares_strdup(PATH_HOSTS);
-      if (!path_hosts)
-        return ARES_ENOMEM;
+      path_hosts = PATH_HOSTS;
     }
 
   fp = fopen(path_hosts, "r");
@@ -511,7 +507,6 @@ static int file_lookup(struct host_query *hquery)
       status = ares__readaddrinfo(fp, hquery->name, hquery->port, &hquery->hints, hquery->ai);
       fclose(fp);
     }
-  ares_free(path_hosts);
 
   /* RFC6761 section 6.3 #3 states that "Name resolution APIs and libraries
    * SHOULD recognize localhost names as special and SHOULD always return the
@@ -670,32 +665,26 @@ void ares_getaddrinfo(ares_channel channel,
     {
       if (hints->ai_flags & ARES_AI_NUMERICSERV)
         {
-          unsigned long val;
-          errno = 0;
-          val = strtoul(service, NULL, 0);
-          if ((val == 0 && errno != 0) || val > 65535)
+          port = (unsigned short)strtoul(service, NULL, 0);
+          if (!port)
             {
               ares_free(alias_name);
               callback(arg, ARES_ESERVICE, 0, NULL);
               return;
             }
-          port = (unsigned short)val;
         }
       else
         {
           port = lookup_service(service, 0);
           if (!port)
             {
-              unsigned long val;
-              errno = 0;
-              val = strtoul(service, NULL, 0);
-              if ((val == 0 && errno != 0) || val > 65535)
+              port = (unsigned short)strtoul(service, NULL, 0);
+              if (!port)
                 {
                   ares_free(alias_name);
                   callback(arg, ARES_ESERVICE, 0, NULL);
                   return;
                 }
-              port = (unsigned short)val;
             }
         }
     }
