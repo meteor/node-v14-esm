@@ -164,7 +164,7 @@ int InterruptBudgetFor(base::Optional<CodeKind> code_kind,
   }
   return TiersUpToMaglev(code_kind) && tiering_state == TieringState::kNone
              ? v8_flags.invocation_count_for_maglev * bytecode_length
-             : v8_flags.interrupt_budget;
+             : v8_flags.invocation_count_for_turbofan * bytecode_length;
 }
 
 }  // namespace
@@ -195,6 +195,13 @@ int TieringManager::InitialInterruptBudget() {
   return V8_LIKELY(v8_flags.lazy_feedback_allocation)
              ? v8_flags.interrupt_budget_for_feedback_allocation
              : v8_flags.interrupt_budget;
+}
+
+// static
+int TieringManager::OsrTierupWeight() {
+  return static_cast<int>(static_cast<double>(v8_flags.interrupt_budget) *
+                          v8_flags.ticks_before_optimization /
+                          v8_flags.osr_to_tierup);
 }
 
 namespace {
@@ -371,8 +378,9 @@ void TieringManager::NotifyICChanged(FeedbackVector vector) {
       SharedFunctionInfo shared = vector.shared_function_info();
       int bytecode_length = shared.GetBytecodeArray(isolate_).length();
       FeedbackCell cell = vector.parent_feedback_cell();
-      int minimum = v8_flags.minimum_invocations_after_ic_update;
-      int new_budget = minimum * bytecode_length;
+      int invocations = v8_flags.minimum_invocations_after_ic_update;
+      int bytecodes = std::min(bytecode_length, (kMaxInt >> 1) / invocations);
+      int new_budget = invocations * bytecodes;
       int current_budget = cell.interrupt_budget();
       if (new_budget > current_budget) {
         if (v8_flags.trace_opt_verbose) {

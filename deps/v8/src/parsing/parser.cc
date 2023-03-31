@@ -1407,6 +1407,12 @@ ImportAssertions* Parser::ParseImportAssertClause() {
 
   Expect(Token::RBRACE);
 
+  // The 'assert' contextual keyword is deprecated in favor of 'with', and we
+  // need to investigate feasibility of unshipping.
+  //
+  // TODO(v8:13856): Remove once decision is made to unship 'assert' or keep.
+  ++use_counts_[v8::Isolate::kImportAssertionDeprecatedSyntax];
+
   return import_assertions;
 }
 
@@ -2590,7 +2596,7 @@ void Parser::DeclareArrowFunctionFormalParameters(
 
   AddArrowFunctionFormalParameters(parameters, expr, params_loc.end_pos);
 
-  if (parameters->arity > InstructionStream::kMaxArguments) {
+  if (parameters->arity > Code::kMaxArguments) {
     ReportMessageAt(params_loc, MessageTemplate::kMalformedArrowFunParamList);
     return;
   }

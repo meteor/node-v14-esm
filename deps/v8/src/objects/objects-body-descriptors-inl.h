@@ -986,9 +986,9 @@ class InstructionStream::BodyDescriptor final : public BodyDescriptorBase {
     IteratePointers(obj, kCodeOffset, kDataStart, v);
 
     InstructionStream istream = InstructionStream::cast(obj);
-    Code code = istream.unchecked_code();
+    Code code = istream.unchecked_code(kAcquireLoad);
     RelocIterator it(code, istream, code.unchecked_relocation_info(),
-                     code.constant_pool(), kRelocModeMask);
+                     kRelocModeMask);
     v->VisitRelocInfo(&it);
   }
 
@@ -999,7 +999,7 @@ class InstructionStream::BodyDescriptor final : public BodyDescriptorBase {
   }
 
   static inline int SizeOf(Map map, HeapObject object) {
-    return InstructionStream::unchecked_cast(object).CodeSize();
+    return InstructionStream::unchecked_cast(object).Size();
   }
 };
 
@@ -1255,6 +1255,7 @@ auto BodyDescriptorApply(InstanceType type, Args&&... args) {
     case JS_ITERATOR_MAP_HELPER_TYPE:
     case JS_ITERATOR_TAKE_HELPER_TYPE:
     case JS_ITERATOR_DROP_HELPER_TYPE:
+    case JS_ITERATOR_FLAT_MAP_HELPER_TYPE:
     case JS_ITERATOR_PROTOTYPE_TYPE:
     case JS_MAP_ITERATOR_PROTOTYPE_TYPE:
     case JS_MAP_KEY_ITERATOR_TYPE:
@@ -1441,6 +1442,12 @@ template <typename ObjectVisitor>
 void HeapObject::IterateFast(PtrComprCageBase cage_base, ObjectVisitor* v) {
   v->VisitMapPointer(*this);
   IterateBodyFast(cage_base, v);
+}
+
+template <typename ObjectVisitor>
+void HeapObject::IterateFast(Map map, ObjectVisitor* v) {
+  v->VisitMapPointer(*this);
+  IterateBodyFast(map, SizeFromMap(map), v);
 }
 
 template <typename ObjectVisitor>

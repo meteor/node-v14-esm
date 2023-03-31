@@ -285,12 +285,11 @@ class OutOfLineTruncateDoubleToI final : public OutOfLineCode {
 class OutOfLineRecordWrite final : public OutOfLineCode {
  public:
   OutOfLineRecordWrite(CodeGenerator* gen, Register object, Operand operand,
-                       Register value, Register scratch0, Register scratch1,
+                       Register scratch0, Register scratch1,
                        RecordWriteMode mode, StubCallMode stub_mode)
       : OutOfLineCode(gen),
         object_(object),
         operand_(operand),
-        value_(value),
         scratch0_(scratch0),
         scratch1_(scratch1),
         mode_(mode),
@@ -299,15 +298,11 @@ class OutOfLineRecordWrite final : public OutOfLineCode {
 #endif  // V8_ENABLE_WEBASSEMBLY
         zone_(gen->zone()) {
     DCHECK(!AreAliased(object, scratch0, scratch1));
-    DCHECK(!AreAliased(value, scratch0, scratch1));
   }
 
   void Generate() final {
-    if (COMPRESS_POINTERS_BOOL) {
-      __ DecompressTagged(value_, value_);
-    }
-    __ CheckPageFlag(value_, scratch0_,
-                     MemoryChunk::kPointersToHereAreInterestingMask, zero,
+    __ CheckPageFlag(object_, scratch0_,
+                     MemoryChunk::kPointersFromHereAreInterestingMask, zero,
                      exit());
     __ leaq(scratch1_, operand_);
 
@@ -333,7 +328,6 @@ class OutOfLineRecordWrite final : public OutOfLineCode {
  private:
   Register const object_;
   Operand const operand_;
-  Register const value_;
   Register const scratch0_;
   Register const scratch1_;
   RecordWriteMode const mode_;
@@ -1291,7 +1285,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
         DCHECK_IMPLIES(
             instr->HasCallDescriptorFlag(CallDescriptor::kFixedTargetRegister),
             reg == kJavaScriptCallCodeStartRegister);
-        __ LoadCodeEntry(reg, reg);
+        __ LoadCodeInstructionStart(reg, reg);
         __ call(reg);
       }
       RecordCallPosition(instr);
@@ -1351,7 +1345,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
         DCHECK_IMPLIES(
             instr->HasCallDescriptorFlag(CallDescriptor::kFixedTargetRegister),
             reg == kJavaScriptCallCodeStartRegister);
-        __ LoadCodeEntry(reg, reg);
+        __ LoadCodeInstructionStart(reg, reg);
         __ jmp(reg);
       }
       unwinding_info_writer_.MarkBlockWillExit();
@@ -1576,7 +1570,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
         __ Check(not_equal, AbortReason::kOperandIsCleared);
       }
 
-      auto ool = zone()->New<OutOfLineRecordWrite>(this, object, operand, value,
+      auto ool = zone()->New<OutOfLineRecordWrite>(this, object, operand,
                                                    scratch0, scratch1, mode,
                                                    DetermineStubCallMode());
       if (arch_opcode == kArchStoreWithWriteBarrier) {
@@ -1592,9 +1586,20 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       if (mode > RecordWriteMode::kValueIsPointer) {
         __ JumpIfSmi(value, ool->exit());
       }
-      __ CheckPageFlag(object, scratch0,
-                       MemoryChunk::kPointersFromHereAreInterestingMask,
-                       not_zero, ool->entry());
+      // Checking the {value}'s page flags first favors old-to-old pointers,
+      // which can skip the OOL code. Checking the {object}'s flags first
+      // would favor new-to-new pointers.
+      if (COMPRESS_POINTERS_BOOL) {
+        MachineRepresentation rep =
+            LocationOperand::cast(instr->InputAt(index))->representation();
+        if (rep == MachineRepresentation::kCompressed ||
+            rep == MachineRepresentation::kCompressedPointer) {
+          __ DecompressTagged(value, value);
+        }
+      }
+      __ CheckPageFlag(value, scratch0,
+                       MemoryChunk::kPointersToHereAreInterestingMask, not_zero,
+                       ool->entry());
       __ bind(ool->exit());
       break;
     }
@@ -4424,12 +4429,50 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       ASSEMBLE_SIMD_BINOP(packssdw);
       break;
     }
-    case kX64I16x8AddSatS: {
-      ASSEMBLE_SIMD_BINOP(paddsw);
+    case kX64IAddSatS: {
+      LaneSize lane_size = LaneSizeField::decode(opcode);
+      VectorLength vec_len = VectorLengthField::decode(opcode);
+      if (vec_len == kV128) {
+        switch (lane_size) {
+          case kL8: {
+            // I8x16AddSatS
+            ASSEMBLE_SIMD_BINOP(paddsb);
+            break;
+          }
+          case kL16: {
+            // I16x8AddSatS
+            ASSEMBLE_SIMD_BINOP(paddsw);
+            break;
+          }
+          default:
+            UNREACHABLE();
+        }
+      } else {
+        UNREACHABLE();
+      }
       break;
     }
-    case kX64I16x8SubSatS: {
-      ASSEMBLE_SIMD_BINOP(psubsw);
+    case kX64ISubSatS: {
+      LaneSize lane_size = LaneSizeField::decode(opcode);
+      VectorLength vec_len = VectorLengthField::decode(opcode);
+      if (vec_len == kV128) {
+        switch (lane_size) {
+          case kL8: {
+            // I8x16SubSatS
+            ASSEMBLE_SIMD_BINOP(psubsb);
+            break;
+          }
+          case kL16: {
+            // I16x8SubSatS
+            ASSEMBLE_SIMD_BINOP(psubsw);
+            break;
+          }
+          default:
+            UNREACHABLE();
+        }
+      } else {
+        UNREACHABLE();
+      }
       break;
     }
     case kX64I16x8UConvertI8x16Low: {
@@ -4445,12 +4488,50 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       ASSEMBLE_SIMD_BINOP(packusdw);
       break;
     }
-    case kX64I16x8AddSatU: {
-      ASSEMBLE_SIMD_BINOP(paddusw);
+    case kX64IAddSatU: {
+      LaneSize lane_size = LaneSizeField::decode(opcode);
+      VectorLength vec_len = VectorLengthField::decode(opcode);
+      if (vec_len == kV128) {
+        switch (lane_size) {
+          case kL8: {
+            // I8x16AddSatU
+            ASSEMBLE_SIMD_BINOP(paddusb);
+            break;
+          }
+          case kL16: {
+            // I16x8AddSatU
+            ASSEMBLE_SIMD_BINOP(paddusw);
+            break;
+          }
+          default:
+            UNREACHABLE();
+        }
+      } else {
+        UNREACHABLE();
+      }
       break;
     }
-    case kX64I16x8SubSatU: {
-      ASSEMBLE_SIMD_BINOP(psubusw);
+    case kX64ISubSatU: {
+      LaneSize lane_size = LaneSizeField::decode(opcode);
+      VectorLength vec_len = VectorLengthField::decode(opcode);
+      if (vec_len == kV128) {
+        switch (lane_size) {
+          case kL8: {
+            // I8x16SubSatU
+            ASSEMBLE_SIMD_BINOP(psubusb);
+            break;
+          }
+          case kL16: {
+            // I16x8SubSatU
+            ASSEMBLE_SIMD_BINOP(psubusw);
+            break;
+          }
+          default:
+            UNREACHABLE();
+        }
+      } else {
+        UNREACHABLE();
+      }
       break;
     }
     case kX64I16x8RoundingAverageU: {
@@ -4552,24 +4633,8 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       ASSEMBLE_SIMD_BINOP(packsswb);
       break;
     }
-    case kX64I8x16AddSatS: {
-      ASSEMBLE_SIMD_BINOP(paddsb);
-      break;
-    }
-    case kX64I8x16SubSatS: {
-      ASSEMBLE_SIMD_BINOP(psubsb);
-      break;
-    }
     case kX64I8x16UConvertI16x8: {
       ASSEMBLE_SIMD_BINOP(packuswb);
-      break;
-    }
-    case kX64I8x16AddSatU: {
-      ASSEMBLE_SIMD_BINOP(paddusb);
-      break;
-    }
-    case kX64I8x16SubSatU: {
-      ASSEMBLE_SIMD_BINOP(psubusb);
       break;
     }
     case kX64I8x16RoundingAverageU: {

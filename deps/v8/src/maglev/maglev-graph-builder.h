@@ -32,6 +32,7 @@
 #include "src/maglev/maglev-graph.h"
 #include "src/maglev/maglev-interpreter-frame-state.h"
 #include "src/maglev/maglev-ir.h"
+#include "src/objects/bytecode-array.h"
 #include "src/objects/elements-kind.h"
 #include "src/utils/memcopy.h"
 
@@ -41,7 +42,7 @@ namespace maglev {
 
 class CallArguments;
 
-class ReduceResult {
+class V8_NODISCARD ReduceResult {
  public:
   enum Kind {
     kDoneWithValue = 0,  // No need to mask while returning the pointer.
@@ -299,11 +300,11 @@ class MaglevGraphBuilder {
       std::cout << "== New empty block ==" << std::endl;
     }
     DCHECK_NULL(current_block_);
-    current_block_ = zone()->New<BasicBlock>(nullptr);
+    current_block_ = zone()->New<BasicBlock>(nullptr, zone());
     // Add an interrupt budget correction if necessary. This makes the edge
     // split block no longer empty, which is unexpected, but we're not changing
     // interpreter frame state, so that's ok.
-    if (v8_flags.maglev_increase_budget_forward_jump &&
+    if (v8_flags.increase_budget_forward_jump &&
         ShouldEmitInterruptBudgetChecks() && interrupt_budget_correction != 0) {
       DCHECK_GT(interrupt_budget_correction, 0);
       AddNewNode<IncreaseInterruptBudget>({}, interrupt_budget_correction);
@@ -846,9 +847,9 @@ class MaglevGraphBuilder {
                                  : RootIndex::kFalseValue);
   }
 
-  ValueNode* GetConstant(const compiler::ObjectRef& ref) {
+  ValueNode* GetConstant(compiler::ObjectRef ref) {
     if (ref.IsSmi()) return GetSmiConstant(ref.AsSmi());
-    const compiler::HeapObjectRef& constant = ref.AsHeapObject();
+    compiler::HeapObjectRef constant = ref.AsHeapObject();
 
     auto root_index = broker()->FindRootIndex(constant);
     if (root_index.has_value()) {
@@ -1199,7 +1200,7 @@ class MaglevGraphBuilder {
 
   void StartNewBlock(int offset) {
     DCHECK_NULL(current_block_);
-    current_block_ = zone()->New<BasicBlock>(merge_states_[offset]);
+    current_block_ = zone()->New<BasicBlock>(merge_states_[offset], zone());
     ResolveJumpsToBlockAtOffset(current_block_, offset);
   }
 
@@ -1245,7 +1246,7 @@ class MaglevGraphBuilder {
       jump_target_refs_head =
           jump_target_refs_head->SetToBlockAndReturnNext(block);
     }
-    if (v8_flags.maglev_increase_budget_forward_jump &&
+    if (v8_flags.increase_budget_forward_jump &&
         ShouldEmitInterruptBudgetChecks() && interrupt_budget_correction != 0) {
       DCHECK_GT(interrupt_budget_correction, 0);
       AddNewNode<IncreaseInterruptBudget>({}, interrupt_budget_correction);
@@ -1401,8 +1402,7 @@ class MaglevGraphBuilder {
                       base::Vector<const compiler::MapRef> maps);
   // Emits an unconditional deopt and returns false if the node is a constant
   // that doesn't match the ref.
-  ReduceResult BuildCheckValue(ValueNode* node,
-                               const compiler::HeapObjectRef& ref);
+  ReduceResult BuildCheckValue(ValueNode* node, compiler::HeapObjectRef ref);
 
   bool CanElideWriteBarrier(ValueNode* object, ValueNode* value);
   void BuildStoreTaggedField(ValueNode* object, ValueNode* value, int offset);
@@ -1488,8 +1488,8 @@ class MaglevGraphBuilder {
   void RecordKnownProperty(ValueNode* lookup_start_object,
                            compiler::NameRef name, ValueNode* value,
                            compiler::PropertyAccessInfo const& access_info);
-  bool TryReuseKnownPropertyLoad(ValueNode* lookup_start_object,
-                                 compiler::NameRef name);
+  ReduceResult TryReuseKnownPropertyLoad(ValueNode* lookup_start_object,
+                                         compiler::NameRef name);
 
   enum InferHasInPrototypeChainResult {
     kMayBeInPrototypeChain,
@@ -1498,20 +1498,20 @@ class MaglevGraphBuilder {
   };
   InferHasInPrototypeChainResult InferHasInPrototypeChain(
       ValueNode* receiver, compiler::HeapObjectRef prototype);
-  bool TryBuildFastHasInPrototypeChain(ValueNode* object,
-                                       compiler::ObjectRef prototype);
-  void BuildHasInPrototypeChain(ValueNode* object,
-                                compiler::ObjectRef prototype);
-  bool TryBuildFastOrdinaryHasInstance(ValueNode* object,
-                                       compiler::JSObjectRef callable,
-                                       ValueNode* callable_node);
-  void BuildOrdinaryHasInstance(ValueNode* object,
-                                compiler::JSObjectRef callable,
-                                ValueNode* callable_node);
-  bool TryBuildFastInstanceOf(ValueNode* object,
-                              compiler::JSObjectRef callable_ref,
-                              ValueNode* callable_node);
-  bool TryBuildFastInstanceOfWithFeedback(
+  ReduceResult TryBuildFastHasInPrototypeChain(ValueNode* object,
+                                               compiler::ObjectRef prototype);
+  ReduceResult BuildHasInPrototypeChain(ValueNode* object,
+                                        compiler::ObjectRef prototype);
+  ReduceResult TryBuildFastOrdinaryHasInstance(ValueNode* object,
+                                               compiler::JSObjectRef callable,
+                                               ValueNode* callable_node);
+  ReduceResult BuildOrdinaryHasInstance(ValueNode* object,
+                                        compiler::JSObjectRef callable,
+                                        ValueNode* callable_node);
+  ReduceResult TryBuildFastInstanceOf(ValueNode* object,
+                                      compiler::JSObjectRef callable_ref,
+                                      ValueNode* callable_node);
+  ReduceResult TryBuildFastInstanceOfWithFeedback(
       ValueNode* object, ValueNode* callable,
       compiler::FeedbackSource feedback_source);
 
@@ -1634,7 +1634,7 @@ class MaglevGraphBuilder {
   int NumPredecessors(int offset) { return predecessors_[offset]; }
 
   compiler::JSHeapBroker* broker() const { return broker_; }
-  const compiler::FeedbackVectorRef& feedback() const {
+  compiler::FeedbackVectorRef feedback() const {
     return compilation_unit_->feedback();
   }
   const FeedbackNexus FeedbackNexusForOperand(int slot_operand_index) const {
@@ -1646,10 +1646,10 @@ class MaglevGraphBuilder {
     return FeedbackNexus(feedback().object(), slot,
                          broker()->feedback_nexus_config());
   }
-  const compiler::BytecodeArrayRef& bytecode() const {
+  compiler::BytecodeArrayRef bytecode() const {
     return compilation_unit_->bytecode();
   }
-  const compiler::JSFunctionRef& function() const {
+  compiler::JSFunctionRef function() const {
     return compilation_unit_->function();
   }
   const compiler::BytecodeAnalysis& bytecode_analysis() const {

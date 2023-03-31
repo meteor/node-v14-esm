@@ -46,6 +46,8 @@ class EmbedderDataArray;
 class ArrayBoilerplateDescription;
 class CoverageInfo;
 class DebugInfo;
+class DeoptimizationData;
+class DeoptimizationLiteralArray;
 class EnumCache;
 class FreshlyAllocatedBigInt;
 class Isolate;
@@ -634,16 +636,17 @@ class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
                                        uint32_t type_index);
   Handle<WasmInternalFunction> NewWasmInternalFunction(Address opt_call_target,
                                                        Handle<HeapObject> ref,
-                                                       Handle<Map> rtt);
+                                                       Handle<Map> rtt,
+                                                       int function_index);
   Handle<WasmCapiFunctionData> NewWasmCapiFunctionData(
       Address call_target, Handle<Foreign> embedder_data,
       Handle<Code> wrapper_code, Handle<Map> rtt,
       Handle<PodArray<wasm::ValueType>> serialized_sig);
   Handle<WasmExportedFunctionData> NewWasmExportedFunctionData(
       Handle<Code> export_wrapper, Handle<WasmInstanceObject> instance,
-      Address call_target, Handle<Object> ref, int func_index,
+      Handle<WasmInternalFunction> internal, int func_index,
       const wasm::FunctionSig* sig, uint32_t canonical_type_index,
-      int wrapper_budget, Handle<Map> rtt, wasm::Promise promise);
+      int wrapper_budget, wasm::Promise promise);
   Handle<WasmApiFunctionRef> NewWasmApiFunctionRef(
       Handle<JSReceiver> callable, wasm::Suspend suspend,
       Handle<WasmInstanceObject> instance);
@@ -1021,14 +1024,19 @@ class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
       return *this;
     }
 
-    inline bool CompiledWithConcurrentBaseline() const;
-
    private:
     MaybeHandle<Code> BuildInternal(bool retry_allocation_or_fail);
+
+    // Dispatches to support concurrent allocation.
+    inline bool CompiledWithConcurrentBaseline() const;
+    Handle<ByteArray> NewByteArray(int length, AllocationType allocation);
+    MaybeHandle<InstructionStream> NewInstructionStream(
+        bool retry_allocation_or_fail);
     MaybeHandle<InstructionStream> AllocateInstructionStream(
         bool retry_allocation_or_fail);
     MaybeHandle<InstructionStream> AllocateConcurrentSparkplugInstructionStream(
         bool retry_allocation_or_fail);
+    Handle<Code> NewCode(const NewCodeOptions& options);
 
     Isolate* const isolate_;
     LocalIsolate* local_isolate_;
@@ -1040,11 +1048,10 @@ class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
     uint32_t inlined_bytecode_size_ = 0;
     BytecodeOffset osr_offset_ = BytecodeOffset::None();
     int32_t kind_specific_flags_ = 0;
-    // Either source_position_table for non-baseline code
-    // or bytecode_offset_table for baseline code.
+    // Either source_position_table for non-baseline code or
+    // bytecode_offset_table for baseline code.
     Handle<ByteArray> position_table_;
-    Handle<DeoptimizationData> deoptimization_data_ =
-        DeoptimizationData::Empty(isolate_);
+    Handle<DeoptimizationData> deoptimization_data_;
     Handle<HeapObject> interpreter_data_;
     BasicBlockProfilerData* profiler_data_ = nullptr;
     bool is_turbofanned_ = false;

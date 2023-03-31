@@ -1067,8 +1067,9 @@ TEST(BreakPointBuiltinNewContext) {
   CheckDebuggerUnloaded();
 }
 
-void NoOpFunctionCallback(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  args.GetReturnValue().Set(v8_num(2));
+void NoOpFunctionCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
+  info.GetReturnValue().Set(v8_num(2));
 }
 
 TEST(BreakPointApiFunction) {
@@ -1153,11 +1154,12 @@ TEST(BreakPointApiConstructor) {
   CheckDebuggerUnloaded();
 }
 
-void GetWrapperCallback(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  args.GetReturnValue().Set(
-      args[0]
+void GetWrapperCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
+  info.GetReturnValue().Set(
+      info[0]
           .As<v8::Object>()
-          ->Get(args.GetIsolate()->GetCurrentContext(), args[1])
+          ->Get(info.GetIsolate()->GetCurrentContext(), info[1])
           .ToLocalChecked());
 }
 
@@ -1207,10 +1209,11 @@ TEST(BreakPointApiGetter) {
   CheckDebuggerUnloaded();
 }
 
-void SetWrapperCallback(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  CHECK(args[0]
+void SetWrapperCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
+  CHECK(info[0]
             .As<v8::Object>()
-            ->Set(args.GetIsolate()->GetCurrentContext(), args[1], args[2])
+            ->Set(info.GetIsolate()->GetCurrentContext(), info[1], info[2])
             .FromJust());
 }
 
@@ -1605,7 +1608,7 @@ TEST(BreakPointConditionBuiltin) {
   // === Test rest arguments ===
   break_point_hit_count = 0;
   builtin = CompileRun("String.fromCharCode").As<v8::Function>();
-  CompileRun("function f(...args) { return String.fromCharCode(...args); }");
+  CompileRun("function f(...info) { return String.fromCharCode(...info); }");
   CHECK_EQ(0, break_point_hit_count);
 
   // Run with breakpoint.
@@ -3120,7 +3123,9 @@ TEST(DebugBreakInWrappedScript) {
   CheckDebuggerUnloaded();
 }
 
-static void EmptyHandler(const v8::FunctionCallbackInfo<v8::Value>& args) {}
+static void EmptyHandler(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
+}
 
 TEST(DebugScopeIteratorWithFunctionTemplate) {
   LocalContext env;
@@ -3988,8 +3993,9 @@ class DebugBreakStackTraceListener : public v8::debug::DebugDelegate {
   }
 };
 
-static void AddDebugBreak(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  v8::debug::SetBreakOnNextFunctionCall(args.GetIsolate());
+static void AddDebugBreak(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
+  v8::debug::SetBreakOnNextFunctionCall(info.GetIsolate());
 }
 
 TEST(DebugBreakStackTrace) {
@@ -4248,8 +4254,9 @@ class DebugEventExpectNoException : public v8::debug::DebugDelegate {
 };
 
 static void TryCatchWrappedThrowCallback(
-    const v8::FunctionCallbackInfo<v8::Value>& args) {
-  v8::TryCatch try_catch(args.GetIsolate());
+    const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
+  v8::TryCatch try_catch(info.GetIsolate());
   CompileRun("throw 'rejection';");
   CHECK(try_catch.HasCaught());
 }
@@ -5494,6 +5501,7 @@ TEST(TerminateOnResumeAtBreakpoint) {
 namespace {
 bool microtask_one_ran = false;
 static void MicrotaskOne(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   CHECK(v8::MicrotasksScope::IsRunningMicrotasks(info.GetIsolate()));
   v8::HandleScope scope(info.GetIsolate());
   v8::MicrotasksScope microtasks(info.GetIsolate()->GetCurrentContext(),
@@ -5690,6 +5698,7 @@ TEST(TerminateOnResumeAtUnhandledRejection) {
 
 namespace {
 void RejectPromiseThroughCpp(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   auto data = reinterpret_cast<std::pair<v8::Isolate*, LocalContext*>*>(
       info.Data().As<v8::External>()->Value());
 

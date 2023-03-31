@@ -97,7 +97,9 @@
 #include "src/compiler/turboshaft/tag-untag-lowering-phase.h"
 #include "src/compiler/turboshaft/tracing.h"
 #include "src/compiler/turboshaft/type-assertions-phase.h"
+#include "src/compiler/turboshaft/type-inference-reducer.h"
 #include "src/compiler/turboshaft/typed-optimizations-phase.h"
+#include "src/compiler/turboshaft/typed-optimizations-reducer.h"
 #include "src/compiler/turboshaft/types.h"
 #include "src/compiler/type-narrowing-reducer.h"
 #include "src/compiler/typed-optimization.h"
@@ -1510,14 +1512,28 @@ struct JSWasmInliningPhase {
         &graph_reducer, temp_zone, data->info(), data->jsgraph(),
         data->broker(), data->source_positions(), data->node_origins(),
         JSInliningHeuristic::kWasmOnly, data->wasm_module_for_inlining());
+    AddReducer(data, &graph_reducer, &dead_code_elimination);
+    AddReducer(data, &graph_reducer, &common_reducer);
+    AddReducer(data, &graph_reducer, &inlining);
+    graph_reducer.ReduceGraph();
+  }
+};
+
+struct JSWasmLoweringPhase {
+  DECL_PIPELINE_PHASE_CONSTANTS(JSWasmLowering)
+  void Run(PipelineData* data, Zone* temp_zone) {
+    DCHECK(data->has_js_wasm_calls());
+    DCHECK_NE(data->wasm_module_for_inlining(), nullptr);
+
+    OptimizedCompilationInfo* info = data->info();
+    info->set_wasm_runtime_exception_support();
+    GraphReducer graph_reducer(temp_zone, data->graph(), &info->tick_counter(),
+                               data->broker(), data->jsgraph()->Dead());
     // The Wasm trap handler is not supported in JavaScript.
     const bool disable_trap_handler = true;
     WasmGCLowering lowering(&graph_reducer, data->jsgraph(),
                             data->wasm_module_for_inlining(),
                             disable_trap_handler, data->source_positions());
-    AddReducer(data, &graph_reducer, &dead_code_elimination);
-    AddReducer(data, &graph_reducer, &common_reducer);
-    AddReducer(data, &graph_reducer, &inlining);
     AddReducer(data, &graph_reducer, &lowering);
     graph_reducer.ReduceGraph();
   }
@@ -1668,13 +1684,11 @@ struct TypeAssertionsPhase {
   DECL_PIPELINE_PHASE_CONSTANTS(TypeAssertions)
 
   void Run(PipelineData* data, Zone* temp_zone) {
-    GraphReducer graph_reducer(
-        temp_zone, data->graph(), &data->info()->tick_counter(), data->broker(),
-        data->jsgraph()->Dead(), data->observe_node_manager());
-    AddTypeAssertionsReducer type_assertions(&graph_reducer, data->jsgraph(),
-                                             temp_zone);
-    AddReducer(data, &graph_reducer, &type_assertions);
-    graph_reducer.ReduceGraph();
+    Schedule* schedule = Scheduler::ComputeSchedule(
+        temp_zone, data->graph(), Scheduler::kTempSchedule,
+        &data->info()->tick_counter(), data->profile_data());
+
+    AddTypeAssertions(data->jsgraph(), schedule, temp_zone);
   }
 };
 
@@ -1976,8 +1990,8 @@ struct LoadEliminationPhase {
                                               data->common(), temp_zone);
     RedundancyElimination redundancy_elimination(&graph_reducer,
                                                  data->jsgraph(), temp_zone);
-    LoadElimination load_elimination(&graph_reducer, data->jsgraph(),
-                                     temp_zone);
+    LoadElimination load_elimination(&graph_reducer, data->broker(),
+                                     data->jsgraph(), temp_zone);
     CheckpointElimination checkpoint_elimination(&graph_reducer);
     ValueNumberingReducer value_numbering(temp_zone, data->graph()->zone());
     CommonOperatorReducer common_reducer(
@@ -2143,15 +2157,15 @@ struct WasmTypingPhase {
 struct WasmGCOptimizationPhase {
   DECL_PIPELINE_PHASE_CONSTANTS(WasmGCOptimization)
 
-  void Run(PipelineData* data, Zone* temp_zone,
-           const wasm::WasmModule* module) {
+  void Run(PipelineData* data, Zone* temp_zone, const wasm::WasmModule* module,
+           MachineGraph* mcgraph) {
     GraphReducer graph_reducer(
         temp_zone, data->graph(), &data->info()->tick_counter(), data->broker(),
         data->jsgraph()->Dead(), data->observe_node_manager());
     WasmLoadElimination load_elimination(&graph_reducer, data->jsgraph(),
                                          temp_zone);
-    WasmGCOperatorReducer wasm_gc(&graph_reducer, temp_zone, data->mcgraph(),
-                                  module);
+    WasmGCOperatorReducer wasm_gc(&graph_reducer, temp_zone, mcgraph, module,
+                                  data->source_positions());
     // Note: if we want to add DeadCodeElimination here, we'll have to update
     // the existing reducers to handle kDead and kDeadValue nodes everywhere.
     AddReducer(data, &graph_reducer, &load_elimination);
@@ -2955,6 +2969,19 @@ bool PipelineImpl::OptimizeGraph(Linkage* linkage) {
     DCHECK(data->info()->inline_js_wasm_calls());
     Run<JSWasmInliningPhase>();
     RunPrintAndVerify(JSWasmInliningPhase::phase_name(), true);
+    if (v8_flags.experimental_wasm_js_inlining &&
+        v8_flags.experimental_wasm_gc) {
+      // TODO(mliedtke): For even better optimizations we should run the
+      // WasmTypingPhase here. However, at its current state it expects all
+      // input nodes of a wasm operation to be wasm nodes as well.
+      if (v8_flags.wasm_opt) {
+        Run<WasmGCOptimizationPhase>(data->wasm_module_for_inlining(),
+                                     data->jsgraph());
+        RunPrintAndVerify(WasmGCOptimizationPhase::phase_name(), true);
+      }
+      Run<JSWasmLoweringPhase>();
+      RunPrintAndVerify(JSWasmLoweringPhase::phase_name(), true);
+    }
   }
 #endif  // V8_ENABLE_WEBASSEMBLY
 
@@ -2991,7 +3018,7 @@ bool PipelineImpl::OptimizeGraph(Linkage* linkage) {
   }
 
   // Optimize control flow.
-  if (v8_flags.turbo_cf_optimization) {
+  if (v8_flags.turbo_cf_optimization && !v8_flags.turboshaft) {
     Run<ControlFlowOptimizationPhase>();
     RunPrintAndVerify(ControlFlowOptimizationPhase::phase_name(), true);
   }
@@ -3493,7 +3520,7 @@ void Pipeline::GenerateCodeForWasmFunction(
     pipeline.Run<WasmTypingPhase>(compilation_data.func_index);
     pipeline.RunPrintAndVerify(WasmTypingPhase::phase_name(), true);
     if (v8_flags.wasm_opt) {
-      pipeline.Run<WasmGCOptimizationPhase>(module);
+      pipeline.Run<WasmGCOptimizationPhase>(module, data.mcgraph());
       pipeline.RunPrintAndVerify(WasmGCOptimizationPhase::phase_name(), true);
     }
   }

@@ -20,60 +20,36 @@ MarkBit MarkingStateBase<ConcreteState, access_mode>::MarkBitFrom(
 template <typename ConcreteState, AccessMode access_mode>
 MarkBit MarkingStateBase<ConcreteState, access_mode>::MarkBitFrom(
     const BasicMemoryChunk* p, Address addr) const {
-  return static_cast<const ConcreteState*>(this)->bitmap(p)->MarkBitFromIndex(
-      p->AddressToMarkbitIndex(addr));
-}
-
-template <typename ConcreteState, AccessMode access_mode>
-bool MarkingStateBase<ConcreteState, access_mode>::IsImpossible(
-    const HeapObject obj) const {
-  return Marking::IsImpossible<access_mode>(MarkBitFrom(obj));
+  return MarkBit::From(addr);
 }
 
 template <typename ConcreteState, AccessMode access_mode>
 bool MarkingStateBase<ConcreteState, access_mode>::IsMarked(
     const HeapObject obj) const {
-  return Marking::IsBlack<access_mode>(MarkBitFrom(obj));
+  return MarkBitFrom(obj).template Get<access_mode>();
 }
 
 template <typename ConcreteState, AccessMode access_mode>
 bool MarkingStateBase<ConcreteState, access_mode>::IsUnmarked(
     const HeapObject obj) const {
-  return Marking::IsWhite<access_mode>(MarkBitFrom(obj));
-}
-
-template <typename ConcreteState, AccessMode access_mode>
-bool MarkingStateBase<ConcreteState, access_mode>::IsGrey(
-    const HeapObject obj) const {
-  return Marking::IsGrey<access_mode>(MarkBitFrom(obj));
-}
-
-template <typename ConcreteState, AccessMode access_mode>
-bool MarkingStateBase<ConcreteState, access_mode>::IsBlackOrGrey(
-    const HeapObject obj) const {
-  return Marking::IsBlackOrGrey<access_mode>(MarkBitFrom(obj));
+  return !IsMarked(obj);
 }
 
 template <typename ConcreteState, AccessMode access_mode>
 bool MarkingStateBase<ConcreteState, access_mode>::TryMark(HeapObject obj) {
-  return Marking::WhiteToGrey<access_mode>(MarkBitFrom(obj));
+  return MarkBitFrom(obj).template Set<access_mode>();
 }
 
 template <typename ConcreteState, AccessMode access_mode>
 bool MarkingStateBase<ConcreteState, access_mode>::TryMarkAndAccountLiveBytes(
     HeapObject obj) {
-  if (TryMark(obj) && GreyToBlack(obj)) {
+  if (TryMark(obj)) {
     static_cast<ConcreteState*>(this)->IncrementLiveBytes(
         MemoryChunk::cast(BasicMemoryChunk::FromHeapObject(obj)),
         ALIGN_TO_ALLOCATION_ALIGNMENT(obj.Size(cage_base())));
     return true;
   }
   return false;
-}
-
-template <typename ConcreteState, AccessMode access_mode>
-bool MarkingStateBase<ConcreteState, access_mode>::GreyToBlack(HeapObject obj) {
-  return Marking::GreyToBlack<access_mode>(MarkBitFrom(obj));
 }
 
 template <typename ConcreteState, AccessMode access_mode>

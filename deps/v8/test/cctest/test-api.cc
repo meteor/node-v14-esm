@@ -139,27 +139,26 @@ void RunWithProfiler(void (*test)()) {
 static int signature_callback_count;
 static Local<Value> signature_expected_receiver;
 static void IncrementingSignatureCallback(
-    const v8::FunctionCallbackInfo<v8::Value>& args) {
+    const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   signature_callback_count++;
-  CHECK(signature_expected_receiver->Equals(
-                                       args.GetIsolate()->GetCurrentContext(),
-                                       args.Holder())
+  CHECK(signature_expected_receiver
+            ->Equals(info.GetIsolate()->GetCurrentContext(), info.Holder())
             .FromJust());
-  CHECK(signature_expected_receiver->Equals(
-                                       args.GetIsolate()->GetCurrentContext(),
-                                       args.This())
+  CHECK(signature_expected_receiver
+            ->Equals(info.GetIsolate()->GetCurrentContext(), info.This())
             .FromJust());
   v8::Local<v8::Array> result =
-      v8::Array::New(args.GetIsolate(), args.Length());
-  for (int i = 0; i < args.Length(); i++) {
-    CHECK(result->Set(args.GetIsolate()->GetCurrentContext(),
-                      v8::Integer::New(args.GetIsolate(), i), args[i])
+      v8::Array::New(info.GetIsolate(), info.Length());
+  for (int i = 0; i < info.Length(); i++) {
+    CHECK(result
+              ->Set(info.GetIsolate()->GetCurrentContext(),
+                    v8::Integer::New(info.GetIsolate(), i), info[i])
               .FromJust());
   }
-  args.GetReturnValue().Set(result);
+  info.GetReturnValue().Set(result);
 }
-
 
 static void Returns42(const v8::FunctionCallbackInfo<v8::Value>& info) {
   info.GetReturnValue().Set(42);
@@ -1086,6 +1085,7 @@ static void handle_callback_2(const v8::FunctionCallbackInfo<Value>& info) {
 
 static void construct_callback(
     const v8::FunctionCallbackInfo<Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   CheckReturnValue(info, FUNCTION_ADDR(construct_callback));
   CHECK(
@@ -1103,6 +1103,7 @@ static void construct_callback(
 
 static void Return239Callback(
     Local<String> name, const v8::PropertyCallbackInfo<Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   CheckReturnValue(info, FUNCTION_ADDR(Return239Callback));
   info.GetReturnValue().Set(v8_str("bad value"));
@@ -1457,6 +1458,7 @@ THREADED_TEST(FunctionTemplateSetLength) {
 
 static void* expected_ptr;
 static void callback(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  CHECK(i::ValidateCallbackInfo(args));
   void* ptr = v8::External::Cast(*args.Data())->Value();
   CHECK_EQ(expected_ptr, ptr);
   args.GetReturnValue().Set(true);
@@ -2048,15 +2050,15 @@ THREADED_TEST(Boolean) {
              ->BooleanValue(isolate));
 }
 
-
-static void DummyCallHandler(const v8::FunctionCallbackInfo<v8::Value>& args) {
+static void DummyCallHandler(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
-  args.GetReturnValue().Set(v8_num(13.4));
+  info.GetReturnValue().Set(v8_num(13.4));
 }
-
 
 static void GetM(Local<String> name,
                  const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   info.GetReturnValue().Set(v8_num(876));
 }
@@ -2162,12 +2164,14 @@ THREADED_TEST(IntegerValue) {
 
 static void GetNirk(Local<String> name,
                     const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   info.GetReturnValue().Set(v8_num(900));
 }
 
 static void GetRino(Local<String> name,
                     const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   info.GetReturnValue().Set(v8_num(560));
 }
@@ -2442,6 +2446,7 @@ THREADED_TEST(TestObjectTemplateClassInheritance) {
 
 static void NamedPropertyGetterWhichReturns42(
     Local<Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   info.GetReturnValue().Set(v8_num(42));
 }
 
@@ -2482,14 +2487,15 @@ THREADED_TEST(TestObjectTemplateReflectConstruct) {
   }
 }
 
-static void GetFlabby(const v8::FunctionCallbackInfo<v8::Value>& args) {
+static void GetFlabby(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
-  args.GetReturnValue().Set(v8_num(17.2));
+  info.GetReturnValue().Set(v8_num(17.2));
 }
-
 
 static void GetKnurd(Local<String> property,
                      const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   info.GetReturnValue().Set(v8_num(15.2));
 }
@@ -2672,6 +2678,7 @@ THREADED_TEST(DescriptorInheritance2) {
 
 void SimpleAccessorGetter(Local<String> name,
                           const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   Local<Object> self = info.This().As<Object>();
   info.GetReturnValue().Set(
       self->Get(info.GetIsolate()->GetCurrentContext(),
@@ -2681,6 +2688,7 @@ void SimpleAccessorGetter(Local<String> name,
 
 void SimpleAccessorSetter(Local<String> name, Local<Value> value,
                           const v8::PropertyCallbackInfo<void>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   Local<Object> self = info.This().As<Object>();
   CHECK(self->Set(info.GetIsolate()->GetCurrentContext(),
                   String::Concat(info.GetIsolate(), v8_str("accessor_"), name),
@@ -2690,6 +2698,7 @@ void SimpleAccessorSetter(Local<String> name, Local<Value> value,
 
 void SymbolAccessorGetter(Local<Name> name,
                           const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   CHECK(name->IsSymbol());
   v8::Isolate* isolate = info.GetIsolate();
   Local<Symbol> sym = name.As<Symbol>();
@@ -2699,6 +2708,7 @@ void SymbolAccessorGetter(Local<Name> name,
 
 void SymbolAccessorSetter(Local<Name> name, Local<Value> value,
                           const v8::PropertyCallbackInfo<void>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   CHECK(name->IsSymbol());
   v8::Isolate* isolate = info.GetIsolate();
   Local<Symbol> sym = name.As<Symbol>();
@@ -2709,6 +2719,7 @@ void SymbolAccessorSetter(Local<Name> name, Local<Value> value,
 
 void SymbolAccessorGetterReturnsDefault(
     Local<Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   CHECK(name->IsSymbol());
   v8::Isolate* isolate = info.GetIsolate();
   Local<Symbol> sym = name.As<Symbol>();
@@ -2718,6 +2729,7 @@ void SymbolAccessorGetterReturnsDefault(
 
 static void ThrowingSymbolAccessorGetter(
     Local<Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   info.GetReturnValue().Set(info.GetIsolate()->ThrowException(name));
 }
 
@@ -2754,6 +2766,7 @@ static const int kTargetRecursionDepth = 100;  // near maximum
 
 static void CallScriptRecursivelyCall(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
+  CHECK(i::ValidateCallbackInfo(args));
   ApiTestFuzzer::Fuzz();
   v8::Local<v8::Context> context = args.GetIsolate()->GetCurrentContext();
   int depth = args.This()
@@ -2773,6 +2786,7 @@ static void CallScriptRecursivelyCall(
 
 static void CallFunctionRecursivelyCall(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
+  CHECK(i::ValidateCallbackInfo(args));
   ApiTestFuzzer::Fuzz();
   v8::Local<v8::Context> context = args.GetIsolate()->GetCurrentContext();
   int depth = args.This()
@@ -2826,6 +2840,7 @@ static void ThrowingPropertyHandlerGet(
     Local<Name> key, const v8::PropertyCallbackInfo<v8::Value>& info) {
   // Since this interceptor is used on "with" objects, the runtime will look up
   // @@unscopables.  Punt.
+  CHECK(i::ValidateCallbackInfo(info));
   if (key->IsSymbol()) return;
   ApiTestFuzzer::Fuzz();
   info.GetReturnValue().Set(info.GetIsolate()->ThrowException(key));
@@ -2835,6 +2850,7 @@ static void ThrowingPropertyHandlerGet(
 static void ThrowingPropertyHandlerSet(
     Local<Name> key, Local<Value>,
     const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   info.GetIsolate()->ThrowException(key);
   info.GetReturnValue().SetUndefined();  // not the same as empty handle
 }
@@ -5083,6 +5099,7 @@ THREADED_TEST(Array) {
 
 
 void HandleF(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  CHECK(i::ValidateCallbackInfo(args));
   v8::EscapableHandleScope scope(args.GetIsolate());
   ApiTestFuzzer::Fuzz();
   Local<v8::Array> result = v8::Array::New(args.GetIsolate(), args.Length());
@@ -5580,6 +5597,7 @@ THREADED_TEST(ConversionException) {
 
 
 void ThrowFromC(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  CHECK(i::ValidateCallbackInfo(args));
   ApiTestFuzzer::Fuzz();
   args.GetIsolate()->ThrowException(v8_str("konto"));
 }
@@ -5829,6 +5847,7 @@ THREADED_TEST(ExternalScriptException) {
 
 
 void CThrowCountDown(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  CHECK(i::ValidateCallbackInfo(args));
   ApiTestFuzzer::Fuzz();
   CHECK_EQ(4, args.Length());
   v8::Local<v8::Context> context = args.GetIsolate()->GetCurrentContext();
@@ -5868,6 +5887,7 @@ void CThrowCountDown(const v8::FunctionCallbackInfo<v8::Value>& args) {
 
 
 void JSCheck(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  CHECK(i::ValidateCallbackInfo(args));
   ApiTestFuzzer::Fuzz();
   CHECK_EQ(3, args.Length());
   v8::Isolate* isolate = args.GetIsolate();
@@ -5980,6 +6000,7 @@ TEST(ExceptionOrder) {
 
 
 void ThrowValue(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  CHECK(i::ValidateCallbackInfo(args));
   ApiTestFuzzer::Fuzz();
   CHECK_EQ(1, args.Length());
   args.GetIsolate()->ThrowException(args[0]);
@@ -6067,6 +6088,7 @@ THREADED_TEST(TryCatchAndFinallyHidingException) {
 
 
 void WithTryCatch(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  CHECK(i::ValidateCallbackInfo(args));
   v8::TryCatch try_catch(args.GetIsolate());
 }
 
@@ -6109,6 +6131,7 @@ void TryCatchMixedNestingCheck(v8::TryCatch* try_catch) {
 
 void TryCatchMixedNestingHelper(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
+  CHECK(i::ValidateCallbackInfo(args));
   ApiTestFuzzer::Fuzz();
   v8::TryCatch try_catch(args.GetIsolate());
   CompileRunWithOrigin("throw new Error('a');\n", "inner", 0, 0);
@@ -6137,6 +6160,7 @@ TEST(TryCatchMixedNesting) {
 
 
 void TryCatchNativeHelper(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  CHECK(i::ValidateCallbackInfo(args));
   ApiTestFuzzer::Fuzz();
   v8::TryCatch try_catch(args.GetIsolate());
   args.GetIsolate()->ThrowException(v8_str("boom"));
@@ -6159,6 +6183,7 @@ TEST(TryCatchNative) {
 
 void TryCatchNativeResetHelper(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
+  CHECK(i::ValidateCallbackInfo(args));
   ApiTestFuzzer::Fuzz();
   v8::TryCatch try_catch(args.GetIsolate());
   args.GetIsolate()->ThrowException(v8_str("boom"));
@@ -6333,6 +6358,7 @@ THREADED_TEST(MultiRun) {
 
 static void GetXValue(Local<Name> name,
                       const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   CHECK(info.Data()
             ->Equals(CcTest::isolate()->GetCurrentContext(), v8_str("donut"))
@@ -6628,6 +6654,7 @@ THREADED_TEST(DontDeleteAPIAccessorsCannotBeOverriden) {
 
 static void Get239Value(Local<Name> name,
                         const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   CHECK(info.Data()
             ->Equals(info.GetIsolate()->GetCurrentContext(), v8_str("donut"))
@@ -6671,6 +6698,7 @@ v8::Persistent<Value> xValue;
 
 static void SetXValue(Local<Name> name, Local<Value> value,
                       const v8::PropertyCallbackInfo<void>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   Local<Context> context = info.GetIsolate()->GetCurrentContext();
   CHECK(value->Equals(context, v8_num(4)).FromJust());
   CHECK(info.Data()->Equals(context, v8_str("donut")).FromJust());
@@ -7971,6 +7999,7 @@ static int p_getter_count2;
 
 static void PGetter(Local<Name> name,
                     const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   p_getter_count++;
   v8::Local<v8::Context> context = info.GetIsolate()->GetCurrentContext();
@@ -8024,6 +8053,7 @@ static void RunHolderTest(v8::Local<v8::ObjectTemplate> obj) {
 
 static void PGetter2(Local<Name> name,
                      const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   p_getter_count2++;
   v8::Isolate* isolate = info.GetIsolate();
@@ -8809,6 +8839,7 @@ THREADED_TEST(ExceptionCreateMessageLength) {
 
 static void YGetter(Local<String> name,
                     const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   info.GetReturnValue().Set(v8_num(10));
 }
@@ -8817,6 +8848,7 @@ static void YGetter(Local<String> name,
 static void YSetter(Local<String> name,
                     Local<Value> value,
                     const v8::PropertyCallbackInfo<void>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   Local<Object> this_obj = info.This().As<Object>();
   v8::Local<v8::Context> context = info.GetIsolate()->GetCurrentContext();
   if (this_obj->Has(context, name).FromJust())
@@ -9665,17 +9697,17 @@ static int g_echo_value = -1;
 static void EchoGetter(
     Local<String> name,
     const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   info.GetReturnValue().Set(v8_num(g_echo_value));
 }
 
-
 static void EchoSetter(Local<String> name, Local<Value> value,
-                       const v8::PropertyCallbackInfo<void>& args) {
+                       const v8::PropertyCallbackInfo<void>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   if (value->IsNumber())
     g_echo_value =
-        value->Int32Value(args.GetIsolate()->GetCurrentContext()).FromJust();
+        value->Int32Value(info.GetIsolate()->GetCurrentContext()).FromJust();
 }
-
 
 static void UnreachableGetter(
     Local<String> name,
@@ -10037,6 +10069,7 @@ TEST(Regress470113) {
 
 static void ConstTenGetter(Local<String> name,
                            const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   info.GetReturnValue().Set(v8_num(10));
 }
 
@@ -10254,10 +10287,10 @@ THREADED_TEST(InstanceProperties) {
   CHECK_EQ(12, value->Int32Value(context.local()).FromJust());
 }
 
-
 static void GlobalObjectInstancePropertiesGet(
-    Local<Name> key, const v8::PropertyCallbackInfo<v8::Value>&) {
+    Local<Name> key, const v8::PropertyCallbackInfo<v8::Value>& info) {
   // The request is not intercepted so don't call ApiTestFuzzer::Fuzz() here.
+  CHECK(i::ValidateCallbackInfo(info));
 }
 
 static int script_execution_count = 0;
@@ -10510,30 +10543,30 @@ static int shadow_y;
 static int shadow_y_setter_call_count;
 static int shadow_y_getter_call_count;
 
-
-static void ShadowYSetter(Local<String>,
-                          Local<Value>,
-                          const v8::PropertyCallbackInfo<void>&) {
+static void ShadowYSetter(Local<String>, Local<Value>,
+                          const v8::PropertyCallbackInfo<void>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   shadow_y_setter_call_count++;
   shadow_y = 42;
 }
 
-
 static void ShadowYGetter(Local<String> name,
                           const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   shadow_y_getter_call_count++;
   info.GetReturnValue().Set(v8_num(shadow_y));
 }
 
-
 static void ShadowIndexedGet(uint32_t index,
-                             const v8::PropertyCallbackInfo<v8::Value>&) {
+                             const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
 }
 
-
 static void ShadowNamedGet(Local<Name> key,
-                           const v8::PropertyCallbackInfo<v8::Value>&) {}
+                           const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
+}
 
 THREADED_TEST(ShadowObject) {
   shadow_y = shadow_y_setter_call_count = shadow_y_getter_call_count = 0;
@@ -11615,6 +11648,7 @@ THREADED_TEST(HandleIteration) {
 
 static void InterceptorCallICFastApi(
     Local<Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   // The request is not intercepted so don't call ApiTestFuzzer::Fuzz() here.
   CheckReturnValue(info, FUNCTION_ADDR(InterceptorCallICFastApi));
   int* call_count =
@@ -11626,43 +11660,44 @@ static void InterceptorCallICFastApi(
 }
 
 static void FastApiCallback_TrivialSignature(
-    const v8::FunctionCallbackInfo<v8::Value>& args) {
+    const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
-  CheckReturnValue(args, FUNCTION_ADDR(FastApiCallback_TrivialSignature));
+  CheckReturnValue(info, FUNCTION_ADDR(FastApiCallback_TrivialSignature));
   v8::Isolate* isolate = CcTest::isolate();
-  CHECK_EQ(isolate, args.GetIsolate());
-  CHECK(args.This()
-            ->Equals(isolate->GetCurrentContext(), args.Holder())
+  CHECK_EQ(isolate, info.GetIsolate());
+  CHECK(info.This()
+            ->Equals(isolate->GetCurrentContext(), info.Holder())
             .FromJust());
-  CHECK(args.Data()
+  CHECK(info.Data()
             ->Equals(isolate->GetCurrentContext(), v8_str("method_data"))
             .FromJust());
-  args.GetReturnValue().Set(
-      args[0]->Int32Value(isolate->GetCurrentContext()).FromJust() + 1);
+  info.GetReturnValue().Set(
+      info[0]->Int32Value(isolate->GetCurrentContext()).FromJust() + 1);
 }
 
 static void FastApiCallback_SimpleSignature(
-    const v8::FunctionCallbackInfo<v8::Value>& args) {
+    const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
-  CheckReturnValue(args, FUNCTION_ADDR(FastApiCallback_SimpleSignature));
+  CheckReturnValue(info, FUNCTION_ADDR(FastApiCallback_SimpleSignature));
   v8::Isolate* isolate = CcTest::isolate();
-  CHECK_EQ(isolate, args.GetIsolate());
-  CHECK(args.This()
+  CHECK_EQ(isolate, info.GetIsolate());
+  CHECK(info.This()
             ->GetPrototype()
-            ->Equals(isolate->GetCurrentContext(), args.Holder())
+            ->Equals(isolate->GetCurrentContext(), info.Holder())
             .FromJust());
-  CHECK(args.Data()
+  CHECK(info.Data()
             ->Equals(isolate->GetCurrentContext(), v8_str("method_data"))
             .FromJust());
   // Note, we're using HasRealNamedProperty instead of Has to avoid
   // invoking the interceptor again.
-  CHECK(args.Holder()
+  CHECK(info.Holder()
             ->HasRealNamedProperty(isolate->GetCurrentContext(), v8_str("foo"))
             .FromJust());
-  args.GetReturnValue().Set(
-      args[0]->Int32Value(isolate->GetCurrentContext()).FromJust() + 1);
+  info.GetReturnValue().Set(
+      info[0]->Int32Value(isolate->GetCurrentContext()).FromJust() + 1);
 }
-
 
 // Helper to maximize the odds of object moving.
 static void GenerateSomeGarbage() {
@@ -11674,8 +11709,8 @@ static void GenerateSomeGarbage() {
       "garbage = undefined;");
 }
 
-
-void DirectApiCallback(const v8::FunctionCallbackInfo<v8::Value>& args) {
+void DirectApiCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   static int count = 0;
   if (count++ % 3 == 0) {
     CcTest::CollectAllGarbage();
@@ -11683,7 +11718,6 @@ void DirectApiCallback(const v8::FunctionCallbackInfo<v8::Value>& args) {
     GenerateSomeGarbage();  // This should ensure the old stub memory is flushed
   }
 }
-
 
 THREADED_TEST(CallICFastApi_DirectCall_GCMoveStub) {
   LocalContext context;
@@ -11752,6 +11786,7 @@ static Local<Value> DoDirectGetter() {
 
 static void DirectGetterCallback(
     Local<String> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   CheckReturnValue(info, FUNCTION_ADDR(DirectGetterCallback));
   info.GetReturnValue().Set(DoDirectGetter());
 }
@@ -11786,6 +11821,7 @@ THREADED_PROFILED_TEST(LoadICFastApi_DirectCall_GCMoveStub) {
 
 void ThrowingDirectGetterCallback(
     Local<String> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   info.GetIsolate()->ThrowException(v8_str("g"));
 }
 
@@ -11879,6 +11915,7 @@ THREADED_PROFILED_TEST(CallICFastApi_TrivialSignature) {
 
 static void ThrowingGetter(Local<String> name,
                            const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   info.GetIsolate()->ThrowException(Local<Value>());
   info.GetReturnValue().SetUndefined();
@@ -12091,6 +12128,7 @@ THREADED_TEST(ExceptionsDoNotPropagatePastTryCatch) {
 
 static void ParentGetter(Local<String> name,
                          const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   info.GetReturnValue().Set(v8_num(1));
 }
@@ -12098,6 +12136,7 @@ static void ParentGetter(Local<String> name,
 
 static void ChildGetter(Local<String> name,
                         const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   info.GetReturnValue().Set(v8_num(42));
 }
@@ -12167,6 +12206,7 @@ THREADED_TEST(Overriding) {
 
 static void ShouldThrowOnErrorGetter(
     Local<Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   v8::Isolate* isolate = info.GetIsolate();
   Local<Boolean> should_throw_on_error =
@@ -12178,6 +12218,7 @@ static void ShouldThrowOnErrorGetter(
 template <typename T>
 static void ShouldThrowOnErrorSetter(Local<Name> name, Local<v8::Value> value,
                                      const v8::PropertyCallbackInfo<T>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   v8::Isolate* isolate = info.GetIsolate();
   auto context = isolate->GetCurrentContext();
@@ -12230,6 +12271,7 @@ THREADED_TEST(AccessorShouldThrowOnError) {
 
 static void ShouldThrowOnErrorQuery(
     Local<Name> name, const v8::PropertyCallbackInfo<v8::Integer>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   v8::Isolate* isolate = info.GetIsolate();
   info.GetReturnValue().Set(v8::None);
@@ -12246,6 +12288,7 @@ static void ShouldThrowOnErrorQuery(
 
 static void ShouldThrowOnErrorDeleter(
     Local<Name> name, const v8::PropertyCallbackInfo<v8::Boolean>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   v8::Isolate* isolate = info.GetIsolate();
   info.GetReturnValue().Set(v8::True(isolate));
@@ -12264,6 +12307,7 @@ static void ShouldThrowOnErrorDeleter(
 
 static void ShouldThrowOnErrorPropertyEnumerator(
     const v8::PropertyCallbackInfo<v8::Array>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   ApiTestFuzzer::Fuzz();
   v8::Isolate* isolate = info.GetIsolate();
   Local<v8::Array> names = v8::Array::New(isolate, 1);
@@ -17656,6 +17700,7 @@ THREADED_TEST(FunctionProtoToString) {
 static void GetterWhichReturns42(
     Local<String> name,
     const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   CHECK(v8::Utils::OpenHandle(*info.This())->IsJSObject());
   CHECK(v8::Utils::OpenHandle(*info.Holder())->IsJSObject());
   info.GetReturnValue().Set(v8_num(42));
@@ -17666,6 +17711,7 @@ static void SetterWhichSetsYOnThisTo23(
     Local<String> name,
     Local<Value> value,
     const v8::PropertyCallbackInfo<void>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   CHECK(v8::Utils::OpenHandle(*info.This())->IsJSObject());
   CHECK(v8::Utils::OpenHandle(*info.Holder())->IsJSObject());
   info.This()
@@ -17677,6 +17723,7 @@ static void SetterWhichSetsYOnThisTo23(
 
 void FooGetInterceptor(Local<Name> name,
                        const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   CHECK(v8::Utils::OpenHandle(*info.This())->IsJSObject());
   CHECK(v8::Utils::OpenHandle(*info.Holder())->IsJSObject());
   if (!name->Equals(info.GetIsolate()->GetCurrentContext(), v8_str("foo"))
@@ -17689,6 +17736,7 @@ void FooGetInterceptor(Local<Name> name,
 
 void FooSetInterceptor(Local<Name> name, Local<Value> value,
                        const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   CHECK(v8::Utils::OpenHandle(*info.This())->IsJSObject());
   CHECK(v8::Utils::OpenHandle(*info.Holder())->IsJSObject());
   if (!name->Equals(info.GetIsolate()->GetCurrentContext(), v8_str("foo"))
@@ -17758,6 +17806,7 @@ TEST(SetterOnConstructorPrototype) {
 static void NamedPropertySetterWhichSetsYOnThisTo23(
     Local<Name> name, Local<Value> value,
     const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   if (name->Equals(info.GetIsolate()->GetCurrentContext(), v8_str("x"))
           .FromJust()) {
     info.This()
@@ -19008,11 +19057,13 @@ THREADED_TEST(Equals) {
 
 static void Getter(v8::Local<v8::Name> property,
                    const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   info.GetReturnValue().Set(v8_str("42!"));
 }
 
 
 static void Enumerator(const v8::PropertyCallbackInfo<v8::Array>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   v8::Local<v8::Array> result = v8::Array::New(info.GetIsolate());
   result->Set(info.GetIsolate()->GetCurrentContext(), 0,
               v8_str("universalAnswer"))
@@ -19228,12 +19279,14 @@ THREADED_TEST(CreationContextOfJsBoundFunction) {
 void HasOwnPropertyIndexedPropertyGetter(
     uint32_t index,
     const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   if (index == 42) info.GetReturnValue().Set(v8_str("yes"));
 }
 
 
 void HasOwnPropertyNamedPropertyGetter(
     Local<Name> property, const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   if (property->Equals(info.GetIsolate()->GetCurrentContext(), v8_str("foo"))
           .FromJust()) {
     info.GetReturnValue().Set(v8_str("yes"));
@@ -19243,12 +19296,14 @@ void HasOwnPropertyNamedPropertyGetter(
 
 void HasOwnPropertyIndexedPropertyQuery(
     uint32_t index, const v8::PropertyCallbackInfo<v8::Integer>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   if (index == 42) info.GetReturnValue().Set(1);
 }
 
 
 void HasOwnPropertyNamedPropertyQuery(
     Local<Name> property, const v8::PropertyCallbackInfo<v8::Integer>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   if (property->Equals(info.GetIsolate()->GetCurrentContext(), v8_str("foo"))
           .FromJust()) {
     info.GetReturnValue().Set(1);
@@ -19258,6 +19313,7 @@ void HasOwnPropertyNamedPropertyQuery(
 
 void HasOwnPropertyNamedPropertyQuery2(
     Local<Name> property, const v8::PropertyCallbackInfo<v8::Integer>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   if (property->Equals(info.GetIsolate()->GetCurrentContext(), v8_str("bar"))
           .FromJust()) {
     info.GetReturnValue().Set(1);
@@ -19267,11 +19323,13 @@ void HasOwnPropertyNamedPropertyQuery2(
 void HasOwnPropertyAccessorGetter(
     Local<String> property,
     const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   info.GetReturnValue().Set(v8_str("yes"));
 }
 
 void HasOwnPropertyAccessorNameGetter(
     Local<Name> property, const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   info.GetReturnValue().Set(v8_str("yes"));
 }
 
@@ -21332,6 +21390,7 @@ class RequestInterruptTestWithNativeAccessor
   static void ShouldContinueNativeGetter(
       Local<String> property,
       const v8::PropertyCallbackInfo<v8::Value>& info) {
+    CHECK(i::ValidateCallbackInfo(info));
     RequestInterruptTestBase* test =
         reinterpret_cast<RequestInterruptTestBase*>(
             info.Data().As<v8::External>()->Value());
@@ -21363,7 +21422,9 @@ class RequestInterruptTestWithMethodCallAndInterceptor
 
  private:
   static void EmptyInterceptor(
-      Local<Name> property, const v8::PropertyCallbackInfo<v8::Value>& info) {}
+      Local<Name> property, const v8::PropertyCallbackInfo<v8::Value>& info) {
+    CHECK(i::ValidateCallbackInfo(info));
+  }
 };
 
 
@@ -21735,6 +21796,7 @@ TEST(EscapableHandleScope) {
 
 static void SetterWhichExpectsThisAndHolderToDiffer(
     Local<String>, Local<Value>, const v8::PropertyCallbackInfo<void>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   CHECK(info.Holder() != info.This());
 }
 
@@ -21771,6 +21833,7 @@ class ApiCallOptimizationChecker {
 
   static void OptimizationCallback(
       const v8::FunctionCallbackInfo<v8::Value>& info) {
+    CHECK(i::ValidateCallbackInfo(info));
     CHECK(data == info.Data());
     CHECK(receiver == info.This());
     if (info.Length() == 1) {
@@ -21780,6 +21843,8 @@ class ApiCallOptimizationChecker {
     }
     CHECK(holder == info.Holder());
     count++;
+    Local<Value> return_value = info.GetReturnValue().Get();
+    CHECK(return_value->IsUndefined());
     info.GetReturnValue().Set(v8_str("returned"));
   }
 
@@ -21974,6 +22039,7 @@ TEST(FunctionCallOptimizationMultipleArgs) {
 
 static void ReturnsSymbolCallback(
     const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   info.GetReturnValue().Set(v8::Symbol::New(info.GetIsolate()));
 }
 
@@ -25858,6 +25924,7 @@ TEST(SetPrototypeTemplate) {
 
 void ensure_receiver_is_global_proxy(
     v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   CHECK(v8::Utils::OpenHandle(*info.This())->IsJSGlobalProxy());
 }
 
@@ -25928,16 +25995,19 @@ void CheckContexts(v8::Isolate* isolate) {
 
 void ContextCheckGetter(Local<String> name,
                         const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   CheckContexts(info.GetIsolate());
   info.GetReturnValue().Set(true);
 }
 
 void ContextCheckSetter(Local<String> name, Local<Value>,
                         const v8::PropertyCallbackInfo<void>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   CheckContexts(info.GetIsolate());
 }
 
 void ContextCheckToString(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   CheckContexts(info.GetIsolate());
   info.GetReturnValue().Set(v8_str("foo"));
 }
@@ -26930,19 +27000,20 @@ TEST(GetJSEntryStubs) {
   v8::JSEntryStubs entry_stubs = isolate->GetJSEntryStubs();
 
   v8::JSEntryStub entry_stub = entry_stubs.js_entry_stub;
-  CHECK_EQ(i_isolate->builtins()->code(i::Builtin::kJSEntry).InstructionStart(),
-           reinterpret_cast<i::Address>(entry_stub.code.start));
+  CHECK_EQ(
+      i_isolate->builtins()->code(i::Builtin::kJSEntry).instruction_start(),
+      reinterpret_cast<i::Address>(entry_stub.code.start));
 
   v8::JSEntryStub construct_stub = entry_stubs.js_construct_entry_stub;
   CHECK_EQ(i_isolate->builtins()
                ->code(i::Builtin::kJSConstructEntry)
-               .InstructionStart(),
+               .instruction_start(),
            reinterpret_cast<i::Address>(construct_stub.code.start));
 
   v8::JSEntryStub microtask_stub = entry_stubs.js_run_microtasks_entry_stub;
   CHECK_EQ(i_isolate->builtins()
                ->code(i::Builtin::kJSRunMicrotasksEntry)
-               .InstructionStart(),
+               .instruction_start(),
            reinterpret_cast<i::Address>(microtask_stub.code.start));
 }
 
@@ -30047,15 +30118,18 @@ TEST(DeepFreezeFreezesExternalObjectData) {
 namespace {
 void handle_property(Local<String> name,
                      const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   info.GetReturnValue().Set(v8_num(900));
 }
 
 void handle_property_2(Local<String> name,
                        const v8::PropertyCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   info.GetReturnValue().Set(v8_num(902));
 }
 
 void handle_property(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   CHECK_EQ(0, info.Length());
   info.GetReturnValue().Set(v8_num(907));
 }
@@ -30084,6 +30158,7 @@ TEST(DeepFreezeInstantiatesAccessors) {
 namespace {
 void handle_object_property(v8::Local<v8::String> property,
                             const v8::PropertyCallbackInfo<Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
   info.GetReturnValue().Set(v8_num(909));
 }
 }  // namespace

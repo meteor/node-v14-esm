@@ -123,7 +123,7 @@ declare_args() {
 
   # Mode used by gen-static-roots.py to have a heap layout which is identical
   # to when v8_enable_static_roots is enabled.
-  v8_enable_static_root_generation = false
+  v8_enable_static_roots_generation = false
 
   # Enable code-generation-time checking of types in the CodeStubAssembler.
   v8_enable_verify_csa = false
@@ -558,7 +558,7 @@ assert(!v8_enable_static_roots ||
        "Trying to enable static roots in a configuration that is not supported")
 
 assert(
-    !(v8_enable_static_roots && v8_enable_static_root_generation),
+    !(v8_enable_static_roots && v8_enable_static_roots_generation),
     "Static root values must be generated in a build that does not rely on static roots itself")
 
 if (v8_builtins_profiling_log_file == "default") {
@@ -805,6 +805,7 @@ external_v8_defines = [
   "V8_MAP_PACKING",
   "V8_IS_TSAN",
   "V8_ENABLE_CONSERVATIVE_STACK_SCANNING",
+  "V8_ENABLE_DIRECT_LOCAL",
 ]
 
 enabled_external_v8_defines = []
@@ -846,6 +847,9 @@ if (is_tsan) {
 }
 if (v8_enable_conservative_stack_scanning) {
   enabled_external_v8_defines += [ "V8_ENABLE_CONSERVATIVE_STACK_SCANNING" ]
+}
+if (v8_enable_direct_local) {
+  enabled_external_v8_defines += [ "V8_ENABLE_DIRECT_LOCAL" ]
 }
 
 disabled_external_v8_defines = external_v8_defines - enabled_external_v8_defines
@@ -1123,8 +1127,8 @@ config("features") {
   if (v8_enable_static_roots) {
     defines += [ "V8_STATIC_ROOTS" ]
   }
-  if (v8_enable_static_root_generation) {
-    defines += [ "V8_STATIC_ROOT_GENERATION" ]
+  if (v8_enable_static_roots_generation) {
+    defines += [ "V8_STATIC_ROOTS_GENERATION" ]
   }
   if (v8_use_zlib) {
     defines += [ "V8_USE_ZLIB" ]
@@ -1639,10 +1643,18 @@ if (v8_postmortem_support) {
       "src/objects/allocation-site-inl.h",
       "src/objects/cell.h",
       "src/objects/cell-inl.h",
+      "src/objects/dependent-code.h",
+      "src/objects/dependent-code-inl.h",
+      "src/objects/bytecode-array.h",
+      "src/objects/bytecode-array-inl.h",
+      "src/objects/abstract-code.h",
+      "src/objects/abstract-code-inl.h",
       "src/objects/code.h",
       "src/objects/code-inl.h",
       "src/objects/data-handler.h",
       "src/objects/data-handler-inl.h",
+      "src/objects/deoptimization-data.h",
+      "src/objects/deoptimization-data-inl.h",
       "src/objects/descriptor-array.h",
       "src/objects/descriptor-array-inl.h",
       "src/objects/feedback-cell.h",
@@ -1857,7 +1869,7 @@ torque_files = [
   "src/objects/bigint.tq",
   "src/objects/call-site-info.tq",
   "src/objects/cell.tq",
-  "src/objects/code.tq",
+  "src/objects/bytecode-array.tq",
   "src/objects/contexts.tq",
   "src/objects/data-handler.tq",
   "src/objects/debug-objects.tq",
@@ -2380,6 +2392,7 @@ action("v8_dump_build_config") {
     "v8_enable_conservative_stack_scanning=" +
         "$v8_enable_conservative_stack_scanning",
     "v8_enable_debug_code=$v8_enable_debug_code",
+    "v8_enable_direct_local=$v8_enable_direct_local",
     "v8_enable_disassembler=$v8_enable_disassembler",
     "v8_enable_gdbjit=$v8_enable_gdbjit",
     "v8_enable_i18n_support=$v8_enable_i18n_support",
@@ -2693,6 +2706,7 @@ v8_header_set("v8_headers") {
     "include/v8-forward.h",
     "include/v8-function-callback.h",
     "include/v8-function.h",
+    "include/v8-handle-base.h",
     "include/v8-initialization.h",
     "include/v8-internal.h",
     "include/v8-isolate.h",
@@ -3074,6 +3088,7 @@ v8_header_set("v8_internal_headers") {
     "src/compiler/turboshaft/sidetable.h",
     "src/compiler/turboshaft/simplify-tf-loops.h",
     "src/compiler/turboshaft/snapshot-table.h",
+    "src/compiler/turboshaft/structural-optimization-reducer.h",
     "src/compiler/turboshaft/tag-untag-lowering-phase.h",
     "src/compiler/turboshaft/tag-untag-lowering-reducer.h",
     "src/compiler/turboshaft/tracing.h",
@@ -3700,9 +3715,9 @@ v8_header_set("v8_internal_headers") {
     "src/zone/type-stats.h",
     "src/zone/zone-allocator.h",
     "src/zone/zone-chunk-list.h",
+    "src/zone/zone-compact-set.h",
     "src/zone/zone-compression.h",
     "src/zone/zone-containers.h",
-    "src/zone/zone-handle-set.h",
     "src/zone/zone-hashmap.h",
     "src/zone/zone-list-inl.h",
     "src/zone/zone-list.h",
@@ -4837,14 +4852,18 @@ v8_source_set("v8_base_without_compiler") {
     "src/logging/tracing-flags.cc",
     "src/numbers/conversions.cc",
     "src/numbers/math-random.cc",
+    "src/objects/abstract-code.cc",
     "src/objects/backing-store.cc",
     "src/objects/bigint.cc",
+    "src/objects/bytecode-array.cc",
     "src/objects/call-site-info.cc",
     "src/objects/code-kind.cc",
     "src/objects/code.cc",
     "src/objects/compilation-cache-table.cc",
     "src/objects/contexts.cc",
     "src/objects/debug-objects.cc",
+    "src/objects/deoptimization-data.cc",
+    "src/objects/dependent-code.cc",
     "src/objects/elements-kind.cc",
     "src/objects/elements.cc",
     "src/objects/embedder-data-array.cc",
@@ -5971,14 +5990,7 @@ v8_component("v8_libplatform") {
       "src/libplatform/tracing/trace-writer.cc",
       "src/libplatform/tracing/trace-writer.h",
     ]
-    sources += [
-      "src/libplatform/tracing/trace-event-listener.cc",
-      "src/libplatform/tracing/trace-event-listener.h",
-    ]
-    deps += [
-      # TODO(skyostil): Switch TraceEventListener to protozero.
-      "//third_party/perfetto/protos/perfetto/trace:lite",
-    ]
+    sources += [ "src/libplatform/tracing/trace-event-listener.h" ]
   }
 
   if (v8_enable_system_instrumentation) {

@@ -494,13 +494,14 @@ void Deserializer<IsolateT>::PostProcessNewObject(Handle<Map> map,
     }
   } else if (InstanceTypeChecker::IsCode(instance_type)) {
     Code code = Code::cast(raw_obj);
-    code.init_code_entry_point(main_thread_isolate(), kNullAddress);
+    code.init_instruction_start(main_thread_isolate(), kNullAddress);
     if (!code.has_instruction_stream()) {
-      code.SetEntryPointForOffHeapBuiltin(main_thread_isolate(),
-                                          code.OffHeapInstructionStart());
+      code.SetInstructionStartForOffHeapBuiltin(
+          main_thread_isolate(), EmbeddedData::FromBlob(main_thread_isolate())
+                                     .InstructionStartOf(code.builtin_id()));
     } else {
-      code.UpdateCodeEntryPoint(main_thread_isolate(),
-                                code.instruction_stream());
+      code.UpdateInstructionStart(main_thread_isolate(),
+                                  code.instruction_stream());
     }
   } else if (InstanceTypeChecker::IsMap(instance_type)) {
     if (v8_flags.log_maps) {
@@ -781,7 +782,7 @@ void DeserializerRelocInfoVisitor::VisitInternalReference(RelocInfo* rinfo) {
   static_assert(InstructionStream::kOnHeapBodyIsContiguous);
   DCHECK_LT(static_cast<unsigned>(target_offset),
             static_cast<unsigned>(rinfo->code().instruction_size()));
-  Address target = rinfo->code().InstructionStart() + target_offset;
+  Address target = rinfo->code().instruction_start() + target_offset;
   Assembler::deserialization_set_target_internal_reference_at(
       rinfo->pc(), target, rinfo->rmode());
 }
@@ -797,7 +798,7 @@ void DeserializerRelocInfoVisitor::VisitOffHeapTarget(RelocInfo* rinfo) {
 
   CHECK_NOT_NULL(isolate()->embedded_blob_code());
   EmbeddedData d = EmbeddedData::FromBlob(isolate());
-  Address address = d.InstructionStartOfBuiltin(builtin);
+  Address address = d.InstructionStartOf(builtin);
   CHECK_NE(kNullAddress, address);
 
   // TODO(ishell): implement RelocInfo::set_target_off_heap_target()
@@ -1225,7 +1226,6 @@ int Deserializer<IsolateT>::ReadCodeBody(byte data,
     Code code = istream.code(kAcquireLoad);
     DeserializerRelocInfoVisitor visitor(this, &preserialized_objects);
     for (RelocIterator it(code, istream, code.relocation_info(),
-                          code.constant_pool(),
                           InstructionStream::BodyDescriptor::kRelocModeMask);
          !it.done(); it.next()) {
       it.rinfo()->Visit(&visitor);

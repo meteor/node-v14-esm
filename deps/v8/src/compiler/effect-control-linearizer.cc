@@ -258,8 +258,7 @@ class EffectControlLinearizer {
   void LowerTransitionAndStoreNumberElement(Node* node);
   void LowerTransitionAndStoreNonNumberElement(Node* node);
   void LowerRuntimeAbort(Node* node);
-  Node* LowerAssertType(Node* node);
-  Node* LowerFoldConstant(Node* node);
+  void LowerAssertType(Node* node);
   Node* LowerConvertReceiver(Node* node);
   Node* LowerDateNow(Node* node);
   Node* LowerDoubleArrayMinMax(Node* node);
@@ -948,8 +947,15 @@ void EffectControlLinearizer::ProcessNode(Node* node, Node** frame_state) {
   // point. We zap the frame state to ensure this invariant is maintained.
   if (region_observability_ == RegionObservability::kObservable &&
       !node->op()->HasProperty(Operator::kNoWrite)) {
-    *frame_state = nullptr;
-    frame_state_zapper_ = node;
+    if (V8_UNLIKELY(node->opcode() == IrOpcode::kCheckMaps)) {
+      // CheckMaps' side effects are not JS-observable so we can keep the
+      // FrameState, when we don't lower CheckMaps here, but in the Turboshaft
+      // pipeline.
+      DCHECK(v8_flags.turboshaft);
+    } else {
+      *frame_state = nullptr;
+      frame_state_zapper_ = node;
+    }
   }
 
   // Remove the end markers of 'atomic' allocation region because the
@@ -1100,9 +1106,14 @@ bool EffectControlLinearizer::TryWireInStateEffect(Node* node,
       result = LowerCheckClosure(node, frame_state);
       break;
     case IrOpcode::kCheckMaps:
+      if (v8_flags.turboshaft) {
+        gasm()->Checkpoint(FrameState{frame_state});
+        return false;
+      }
       LowerCheckMaps(node, frame_state);
       break;
     case IrOpcode::kCompareMaps:
+      if (v8_flags.turboshaft) return false;
       result = LowerCompareMaps(node);
       break;
     case IrOpcode::kCheckNumber:
@@ -1428,12 +1439,15 @@ bool EffectControlLinearizer::TryWireInStateEffect(Node* node,
       result = LowerObjectIsDetectableCallable(node);
       break;
     case IrOpcode::kObjectIsMinusZero:
+      if (v8_flags.turboshaft) return false;
       result = LowerObjectIsMinusZero(node);
       break;
     case IrOpcode::kNumberIsMinusZero:
+      if (v8_flags.turboshaft) return false;
       result = LowerNumberIsMinusZero(node);
       break;
     case IrOpcode::kObjectIsNaN:
+      if (v8_flags.turboshaft) return false;
       result = LowerObjectIsNaN(node);
       break;
     case IrOpcode::kNumberIsNaN:
@@ -1469,9 +1483,11 @@ bool EffectControlLinearizer::TryWireInStateEffect(Node* node,
       result = LowerObjectIsUndetectable(node);
       break;
     case IrOpcode::kArgumentsLength:
+      if (v8_flags.turboshaft) return false;
       result = LowerArgumentsLength(node);
       break;
     case IrOpcode::kRestLength:
+      if (v8_flags.turboshaft) return false;
       result = LowerRestLength(node);
       break;
     case IrOpcode::kToBoolean:
@@ -1489,6 +1505,7 @@ bool EffectControlLinearizer::TryWireInStateEffect(Node* node,
       result = LowerNewSmiOrObjectElements(node);
       break;
     case IrOpcode::kNewArgumentsElements:
+      if (v8_flags.turboshaft) return false;
       result = LowerNewArgumentsElements(node);
       break;
     case IrOpcode::kNewConsString:
@@ -1655,24 +1672,31 @@ bool EffectControlLinearizer::TryWireInStateEffect(Node* node,
       result = LowerBigIntNegate(node);
       break;
     case IrOpcode::kNumberIsFloat64Hole:
+      if (v8_flags.turboshaft) return false;
       result = LowerNumberIsFloat64Hole(node);
       break;
     case IrOpcode::kNumberIsFinite:
+      if (v8_flags.turboshaft) return false;
       result = LowerNumberIsFinite(node);
       break;
     case IrOpcode::kObjectIsFiniteNumber:
+      if (v8_flags.turboshaft) return false;
       result = LowerObjectIsFiniteNumber(node);
       break;
     case IrOpcode::kNumberIsInteger:
+      if (v8_flags.turboshaft) return false;
       result = LowerNumberIsInteger(node);
       break;
     case IrOpcode::kObjectIsInteger:
+      if (v8_flags.turboshaft) return false;
       result = LowerObjectIsInteger(node);
       break;
     case IrOpcode::kNumberIsSafeInteger:
+      if (v8_flags.turboshaft) return false;
       result = LowerNumberIsSafeInteger(node);
       break;
     case IrOpcode::kObjectIsSafeInteger:
+      if (v8_flags.turboshaft) return false;
       result = LowerObjectIsSafeInteger(node);
       break;
     case IrOpcode::kCheckFloat64Hole:
@@ -1765,7 +1789,7 @@ bool EffectControlLinearizer::TryWireInStateEffect(Node* node,
       LowerRuntimeAbort(node);
       break;
     case IrOpcode::kAssertType:
-      result = LowerAssertType(node);
+      LowerAssertType(node);
       break;
     case IrOpcode::kConvertReceiver:
       result = LowerConvertReceiver(node);
@@ -1792,9 +1816,6 @@ bool EffectControlLinearizer::TryWireInStateEffect(Node* node,
       break;
     case IrOpcode::kDateNow:
       result = LowerDateNow(node);
-      break;
-    case IrOpcode::kFoldConstant:
-      result = LowerFoldConstant(node);
       break;
     case IrOpcode::kDoubleArrayMax:
     case IrOpcode::kDoubleArrayMin:
@@ -2276,10 +2297,11 @@ void EffectControlLinearizer::MigrateInstanceOrDeopt(
 }
 
 void EffectControlLinearizer::LowerCheckMaps(Node* node, Node* frame_state) {
+  DCHECK(!v8_flags.turboshaft);
   CheckMapsParameters const& p = CheckMapsParametersOf(node->op());
   Node* value = node->InputAt(0);
 
-  ZoneHandleSet<Map> const& maps = p.maps();
+  ZoneRefSet<Map> const& maps = p.maps();
   size_t const map_count = maps.size();
 
   if (p.flags() & CheckMapsFlag::kTryMigrateInstance) {
@@ -2291,7 +2313,7 @@ void EffectControlLinearizer::LowerCheckMaps(Node* node, Node* frame_state) {
 
     // Perform the map checks.
     for (size_t i = 0; i < map_count; ++i) {
-      Node* map = __ HeapConstant(maps[i]);
+      Node* map = __ HeapConstant(maps[i].object());
       Node* check = __ TaggedEqual(value_map, map);
       if (i == map_count - 1) {
         __ BranchWithCriticalSafetyCheck(check, &done, &migrate);
@@ -2312,7 +2334,7 @@ void EffectControlLinearizer::LowerCheckMaps(Node* node, Node* frame_state) {
 
     // Perform the map checks again.
     for (size_t i = 0; i < map_count; ++i) {
-      Node* map = __ HeapConstant(maps[i]);
+      Node* map = __ HeapConstant(maps[i].object());
       Node* check = __ TaggedEqual(value_map, map);
       if (i == map_count - 1) {
         __ DeoptimizeIfNot(DeoptimizeReason::kWrongMap, p.feedback(), check,
@@ -2333,7 +2355,7 @@ void EffectControlLinearizer::LowerCheckMaps(Node* node, Node* frame_state) {
     Node* value_map = __ LoadField(AccessBuilder::ForMap(), value);
 
     for (size_t i = 0; i < map_count; ++i) {
-      Node* map = __ HeapConstant(maps[i]);
+      Node* map = __ HeapConstant(maps[i].object());
       Node* check = __ TaggedEqual(value_map, map);
 
       if (i == map_count - 1) {
@@ -2383,7 +2405,8 @@ Node* EffectControlLinearizer::CallBuiltinForBigIntBinop(Node* left,
 }
 
 Node* EffectControlLinearizer::LowerCompareMaps(Node* node) {
-  ZoneHandleSet<Map> const& maps = CompareMapsParametersOf(node->op());
+  DCHECK(!v8_flags.turboshaft);
+  ZoneRefSet<Map> const& maps = CompareMapsParametersOf(node->op());
   size_t const map_count = maps.size();
   Node* value = node->InputAt(0);
 
@@ -2393,7 +2416,7 @@ Node* EffectControlLinearizer::LowerCompareMaps(Node* node) {
   Node* value_map = __ LoadField(AccessBuilder::ForMap(), value);
 
   for (size_t i = 0; i < map_count; ++i) {
-    Node* map = __ HeapConstant(maps[i]);
+    Node* map = __ HeapConstant(maps[i].object());
     Node* check = __ TaggedEqual(value_map, map);
 
     auto next_map = __ MakeLabel();
@@ -4530,6 +4553,7 @@ Node* EffectControlLinearizer::LowerObjectIsDetectableCallable(Node* node) {
 }
 
 Node* EffectControlLinearizer::LowerNumberIsFloat64Hole(Node* node) {
+  DCHECK(!v8_flags.turboshaft);
   Node* value = node->InputAt(0);
   Node* check = __ Word32Equal(__ Float64ExtractHighWord32(value),
                                __ Int32Constant(kHoleNanUpper32));
@@ -4537,6 +4561,7 @@ Node* EffectControlLinearizer::LowerNumberIsFloat64Hole(Node* node) {
 }
 
 Node* EffectControlLinearizer::LowerNumberIsFinite(Node* node) {
+  DCHECK(!v8_flags.turboshaft);
   Node* number = node->InputAt(0);
   Node* diff = __ Float64Sub(number, number);
   Node* check = __ Float64Equal(diff, diff);
@@ -4544,6 +4569,7 @@ Node* EffectControlLinearizer::LowerNumberIsFinite(Node* node) {
 }
 
 Node* EffectControlLinearizer::LowerObjectIsFiniteNumber(Node* node) {
+  DCHECK(!v8_flags.turboshaft);
   Node* object = node->InputAt(0);
   Node* zero = __ Int32Constant(0);
   Node* one = __ Int32Constant(1);
@@ -4569,6 +4595,7 @@ Node* EffectControlLinearizer::LowerObjectIsFiniteNumber(Node* node) {
 }
 
 Node* EffectControlLinearizer::LowerNumberIsInteger(Node* node) {
+  DCHECK(!v8_flags.turboshaft);
   Node* number = node->InputAt(0);
   Node* trunc = BuildFloat64RoundTruncate(number);
   Node* diff = __ Float64Sub(number, trunc);
@@ -4577,6 +4604,7 @@ Node* EffectControlLinearizer::LowerNumberIsInteger(Node* node) {
 }
 
 Node* EffectControlLinearizer::LowerObjectIsInteger(Node* node) {
+  DCHECK(!v8_flags.turboshaft);
   Node* object = node->InputAt(0);
   Node* zero = __ Int32Constant(0);
   Node* one = __ Int32Constant(1);
@@ -4603,6 +4631,7 @@ Node* EffectControlLinearizer::LowerObjectIsInteger(Node* node) {
 }
 
 Node* EffectControlLinearizer::LowerNumberIsSafeInteger(Node* node) {
+  DCHECK(!v8_flags.turboshaft);
   Node* number = node->InputAt(0);
   Node* zero = __ Int32Constant(0);
   auto done = __ MakeLabel(MachineRepresentation::kBit);
@@ -4620,6 +4649,7 @@ Node* EffectControlLinearizer::LowerNumberIsSafeInteger(Node* node) {
 }
 
 Node* EffectControlLinearizer::LowerObjectIsSafeInteger(Node* node) {
+  DCHECK(!v8_flags.turboshaft);
   Node* object = node->InputAt(0);
   Node* zero = __ Int32Constant(0);
   Node* one = __ Int32Constant(1);
@@ -4648,20 +4678,8 @@ Node* EffectControlLinearizer::LowerObjectIsSafeInteger(Node* node) {
   return done.PhiAt(0);
 }
 
-namespace {
-
-// There is no (currently) available constexpr version of base::bit_cast, so
-// we have to make do with constructing the -0.0 bits manually (by setting the
-// sign bit to 1 and everything else to 0).
-// TODO(leszeks): Revisit when upgrading to C++20.
-constexpr int32_t kMinusZeroLoBits = static_cast<int32_t>(0);
-constexpr int32_t kMinusZeroHiBits = static_cast<int32_t>(1) << 31;
-constexpr int64_t kMinusZeroBits =
-    (static_cast<uint64_t>(kMinusZeroHiBits) << 32) | kMinusZeroLoBits;
-
-}  // namespace
-
 Node* EffectControlLinearizer::LowerObjectIsMinusZero(Node* node) {
+  DCHECK(!v8_flags.turboshaft);
   Node* value = node->InputAt(0);
   Node* zero = __ Int32Constant(0);
 
@@ -4694,6 +4712,7 @@ Node* EffectControlLinearizer::LowerObjectIsMinusZero(Node* node) {
 }
 
 Node* EffectControlLinearizer::LowerNumberIsMinusZero(Node* node) {
+  DCHECK(!v8_flags.turboshaft);
   Node* value = node->InputAt(0);
 
   if (machine()->Is64()) {
@@ -4715,6 +4734,7 @@ Node* EffectControlLinearizer::LowerNumberIsMinusZero(Node* node) {
 }
 
 Node* EffectControlLinearizer::LowerObjectIsNaN(Node* node) {
+  DCHECK(!v8_flags.turboshaft);
   Node* value = node->InputAt(0);
   Node* zero = __ Int32Constant(0);
 
@@ -4915,6 +4935,7 @@ Node* EffectControlLinearizer::LowerToBoolean(Node* node) {
 }
 
 Node* EffectControlLinearizer::LowerArgumentsLength(Node* node) {
+  DCHECK(!v8_flags.turboshaft);
   Node* arguments_length = ChangeIntPtrToSmi(
       __ Load(MachineType::Pointer(), __ LoadFramePointer(),
               __ IntPtrConstant(StandardFrameConstants::kArgCOffset)));
@@ -4924,6 +4945,7 @@ Node* EffectControlLinearizer::LowerArgumentsLength(Node* node) {
 }
 
 Node* EffectControlLinearizer::LowerRestLength(Node* node) {
+  DCHECK(!v8_flags.turboshaft);
   int formal_parameter_count = FormalParameterCountOf(node->op());
   DCHECK_LE(0, formal_parameter_count);
 
@@ -5041,6 +5063,7 @@ Node* EffectControlLinearizer::LowerNewSmiOrObjectElements(Node* node) {
 }
 
 Node* EffectControlLinearizer::LowerNewArgumentsElements(Node* node) {
+  DCHECK(!v8_flags.turboshaft);
   const NewArgumentsElementsParameters& parameters =
       NewArgumentsElementsParametersOf(node->op());
   CreateArgumentsType type = parameters.arguments_type();
@@ -6361,8 +6384,8 @@ void EffectControlLinearizer::LowerTransitionElementsKind(Node* node) {
   auto if_map_same = __ MakeDeferredLabel();
   auto done = __ MakeLabel();
 
-  Node* source_map = __ HeapConstant(transition.source());
-  Node* target_map = __ HeapConstant(transition.target());
+  Node* source_map = __ HeapConstant(transition.source().object());
+  Node* target_map = __ HeapConstant(transition.target().object());
 
   // Load the current map of {object}.
   Node* object_map = __ LoadField(AccessBuilder::ForMap(), object);
@@ -7269,9 +7292,9 @@ void EffectControlLinearizer::TransitionElementsTo(Node* node, Node* array,
   DCHECK(IsMoreGeneralElementsKindTransition(from, to));
   DCHECK(to == HOLEY_ELEMENTS || to == HOLEY_DOUBLE_ELEMENTS);
 
-  Handle<Map> target(to == HOLEY_ELEMENTS ? FastMapParameterOf(node->op())
-                                          : DoubleMapParameterOf(node->op()));
-  Node* target_map = __ HeapConstant(target);
+  MapRef target(to == HOLEY_ELEMENTS ? FastMapParameterOf(node->op())
+                                     : DoubleMapParameterOf(node->op()));
+  Node* target_map = __ HeapConstant(target.object());
 
   if (IsSimpleMapChangeTransition(from, to)) {
     __ StoreField(AccessBuilder::ForMap(), array, target_map);
@@ -7645,7 +7668,7 @@ Node* EffectControlLinearizer::CallBuiltin(Builtin builtin,
                  __ NoContextConstant());
 }
 
-Node* EffectControlLinearizer::LowerAssertType(Node* node) {
+void EffectControlLinearizer::LowerAssertType(Node* node) {
   DCHECK_EQ(node->opcode(), IrOpcode::kAssertType);
   Type type = OpParameter<Type>(node->op());
   CHECK(type.CanBeAsserted());
@@ -7661,16 +7684,6 @@ Node* EffectControlLinearizer::LowerAssertType(Node* node) {
   }
   CallBuiltin(Builtin::kCheckTurbofanType, node->op()->properties(), input,
               allocated_type, __ SmiConstant(node->id()));
-  return input;
-}
-
-Node* EffectControlLinearizer::LowerFoldConstant(Node* node) {
-  DCHECK_EQ(node->opcode(), IrOpcode::kFoldConstant);
-  Node* original = node->InputAt(0);
-  Node* constant = node->InputAt(1);
-  CallBuiltin(Builtin::kCheckSameObject, node->op()->properties(), original,
-              constant);
-  return constant;
 }
 
 Node* EffectControlLinearizer::LowerDoubleArrayMinMax(Node* node) {

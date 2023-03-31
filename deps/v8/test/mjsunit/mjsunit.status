@@ -592,9 +592,6 @@
   # BUG(v8:3457).
   'deserialize-reference': [PASS, FAIL],
 
-  # BUG(v8:4016)
-  'regress/regress-crbug-467047': [SKIP],
-
   # OOMing tests
   'regress/regress-500980': [SKIP],
 
@@ -1189,6 +1186,10 @@
   'compiler/js-create-arguments': [SKIP],
   'compiler/js-create': [SKIP],
   'compiler/construct-bound-function': [SKIP],
+
+  # BUG(v8:13882) Skipped until we have a solution.
+  'compiler/osr-literals': [SKIP],
+  'compiler/osr-literals-adapted': [SKIP],
 }], # gc_fuzzer or deopt_fuzzer or interrupt_fuzzer
 
 ##############################################################################
@@ -1333,10 +1334,6 @@
 
   # Baseline tests don't make sense with optimization stressing.
   'baseline/*': [SKIP],
-
-  # This test uses --wasm-speculative-inlining which is incompatible with
-  # stressing.
-  'regress/wasm/regress-1364036': [SKIP],
 
   # Makes assumptions about tiering, which don't hold when we TF everything.
   'wasm/enter-and-leave-debug-state': [SKIP],

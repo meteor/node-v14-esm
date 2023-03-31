@@ -18,10 +18,11 @@ namespace v8 {
 
 namespace {
 std::shared_ptr<AsyncHooksWrap> UnwrapHook(
-    const v8::FunctionCallbackInfo<v8::Value>& args) {
-  Isolate* isolate = args.GetIsolate();
+    const v8::FunctionCallbackInfo<v8::Value>& info) {
+  DCHECK(i::ValidateCallbackInfo(info));
+  Isolate* isolate = info.GetIsolate();
   HandleScope scope(isolate);
-  Local<Object> hook = args.This();
+  Local<Object> hook = info.This();
 
   AsyncHooks* hooks = PerIsolateData::Get(isolate)->GetAsyncHooks();
 
@@ -34,13 +35,15 @@ std::shared_ptr<AsyncHooksWrap> UnwrapHook(
   return i::Handle<i::Managed<AsyncHooksWrap>>::cast(handle)->get();
 }
 
-void EnableHook(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  auto wrap = UnwrapHook(args);
+void EnableHook(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  DCHECK(i::ValidateCallbackInfo(info));
+  auto wrap = UnwrapHook(info);
   if (wrap) wrap->Enable();
 }
 
-void DisableHook(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  auto wrap = UnwrapHook(args);
+void DisableHook(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  DCHECK(i::ValidateCallbackInfo(info));
+  auto wrap = UnwrapHook(info);
   if (wrap) wrap->Disable();
 }
 
@@ -75,7 +78,6 @@ AsyncHooks::AsyncHooks(Isolate* isolate) : isolate_(isolate) {
 
 AsyncHooks::~AsyncHooks() {
   isolate_->SetPromiseHook(nullptr);
-  base::RecursiveMutexGuard lock_guard(&async_wraps_mutex_);
   async_wraps_.clear();
 }
 
@@ -118,13 +120,14 @@ async_id_t AsyncHooks::GetTriggerAsyncId() const {
 }
 
 Local<Object> AsyncHooks::CreateHook(
-    const v8::FunctionCallbackInfo<v8::Value>& args) {
-  Isolate* isolate = args.GetIsolate();
+    const v8::FunctionCallbackInfo<v8::Value>& info) {
+  DCHECK(i::ValidateCallbackInfo(info));
+  Isolate* isolate = info.GetIsolate();
   EscapableHandleScope handle_scope(isolate);
 
   Local<Context> currentContext = isolate->GetCurrentContext();
 
-  if (args.Length() != 1 || !args[0]->IsObject()) {
+  if (info.Length() != 1 || !info[0]->IsObject()) {
     isolate->ThrowError("Invalid arguments passed to createHook");
     return Local<Object>();
   }
@@ -132,7 +135,7 @@ Local<Object> AsyncHooks::CreateHook(
   std::shared_ptr<AsyncHooksWrap> wrap =
       std::make_shared<AsyncHooksWrap>(isolate);
 
-  Local<Object> fn_obj = args[0].As<Object>();
+  Local<Object> fn_obj = info[0].As<Object>();
 
 #define SET_HOOK_FN(name)                                                      \
   MaybeLocal<Value> name##_maybe_func =                                        \
@@ -155,10 +158,7 @@ Local<Object> AsyncHooks::CreateHook(
       reinterpret_cast<i::Isolate*>(isolate), sizeof(AsyncHooksWrap), wrap);
   obj->SetInternalField(0, Utils::ToLocal(managed));
 
-  {
-    base::RecursiveMutexGuard lock_guard(&async_wraps_mutex_);
-    async_wraps_.push_back(std::move(wrap));
-  }
+  async_wraps_.push_back(std::move(wrap));
 
   return handle_scope.Escape(obj);
 }
@@ -231,8 +231,8 @@ void AsyncHooks::ShellPromiseHook(PromiseHookType type, Local<Promise> promise,
       hooks->asyncContexts.pop();
     }
     if (!i::StackLimitCheck{i_isolate}.HasOverflowed()) {
-      base::RecursiveMutexGuard lock_guard(&hooks->async_wraps_mutex_);
-      for (const auto& wrap : hooks->async_wraps_) {
+      for (size_t i = 0; i < hooks->async_wraps_.size(); ++i) {
+        std::shared_ptr<AsyncHooksWrap> wrap = hooks->async_wraps_[i];
         PromiseHookDispatch(type, promise, parent, *wrap, hooks);
         if (try_catch.HasCaught()) break;
       }

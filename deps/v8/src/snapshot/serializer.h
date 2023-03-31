@@ -10,6 +10,8 @@
 #include "src/execution/isolate.h"
 #include "src/handles/global-handles.h"
 #include "src/logging/log.h"
+#include "src/objects/abstract-code.h"
+#include "src/objects/bytecode-array.h"
 #include "src/objects/objects.h"
 #include "src/snapshot/serializer-deserializer.h"
 #include "src/snapshot/snapshot-source-sink.h"
@@ -279,7 +281,7 @@ class Serializer : public SerializerDeserializer {
   // of the serializer.  Initialize it on demand.
   void InitializeCodeAddressMap();
 
-  InstructionStream CopyCode(InstructionStream code);
+  InstructionStream CopyCode(InstructionStream istream);
 
   void QueueDeferredObject(HeapObject obj) {
     DCHECK_NULL(reference_map_.LookupReference(obj));

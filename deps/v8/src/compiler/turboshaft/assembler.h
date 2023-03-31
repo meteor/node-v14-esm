@@ -44,6 +44,27 @@ namespace v8::internal::compiler::turboshaft {
 // `V<Boolean>` to be used.
 using Boolean = Oddball;
 
+class ConditionWithHint final {
+ public:
+  ConditionWithHint(
+      V<Word32> condition,
+      BranchHint hint = BranchHint::kNone)  // NOLINT(runtime/explicit)
+      : condition_(condition), hint_(hint) {}
+
+  template <typename T, typename = std::enable_if_t<std::is_same_v<T, OpIndex>>>
+  ConditionWithHint(
+      T condition,
+      BranchHint hint = BranchHint::kNone)  // NOLINT(runtime/explicit)
+      : ConditionWithHint(V<Word32>{condition}, hint) {}
+
+  V<Word32> condition() const { return condition_; }
+  BranchHint hint() const { return hint_; }
+
+ private:
+  V<Word32> condition_;
+  BranchHint hint_;
+};
+
 namespace detail {
 template <typename T, typename = void>
 struct has_constexpr_type : std::false_type {};
@@ -1000,12 +1021,19 @@ class AssemblerOpInterface {
     }
     return stack().ReduceObjectIs(input, kind, input_assumptions);
   }
-  OpIndex FloatIs(OpIndex input, FloatIsOp::Kind kind,
+  OpIndex FloatIs(OpIndex input, NumericKind kind,
                   FloatRepresentation input_rep) {
     if (V8_UNLIKELY(stack().generating_unreachable_operations())) {
       return OpIndex::Invalid();
     }
     return stack().ReduceFloatIs(input, kind, input_rep);
+  }
+  OpIndex ObjectIsNumericValue(OpIndex input, NumericKind kind,
+                               FloatRepresentation input_rep) {
+    if (V8_UNLIKELY(stack().generating_unreachable_operations())) {
+      return OpIndex::Invalid();
+    }
+    return stack().ReduceObjectIsNumericValue(input, kind, input_rep);
   }
   V<Word32> ObjectIsSmi(V<Tagged> object) {
     return ObjectIs(object, ObjectIsOp::Kind::kSmi,
@@ -1586,6 +1614,9 @@ class AssemblerOpInterface {
     }
     stack().ReduceBranch(condition, if_true, if_false, hint);
   }
+  void Branch(ConditionWithHint condition, Block* if_true, Block* if_false) {
+    return Branch(condition.condition(), if_true, if_false, condition.hint());
+  }
   OpIndex Select(OpIndex cond, OpIndex vtrue, OpIndex vfalse,
                  RegisterRepresentation rep, BranchHint hint,
                  SelectOp::Implementation implem) {
@@ -1716,6 +1747,27 @@ class AssemblerOpInterface {
     }
   }
 
+  V<FixedArray> CallBuiltin_NewSloppyArgumentsElements(
+      Isolate* isolate, V<WordPtr> frame, V<WordPtr> formal_parameter_count,
+      V<Smi> arguments_count) {
+    return CallBuiltin<
+        typename BuiltinCallDescriptor::NewSloppyArgumentsElements>(
+        isolate, {frame, formal_parameter_count, arguments_count});
+  }
+  V<FixedArray> CallBuiltin_NewStrictArgumentsElements(
+      Isolate* isolate, V<WordPtr> frame, V<WordPtr> formal_parameter_count,
+      V<Smi> arguments_count) {
+    return CallBuiltin<
+        typename BuiltinCallDescriptor::NewStrictArgumentsElements>(
+        isolate, {frame, formal_parameter_count, arguments_count});
+  }
+  V<FixedArray> CallBuiltin_NewRestArgumentsElements(
+      Isolate* isolate, V<WordPtr> frame, V<WordPtr> formal_parameter_count,
+      V<Smi> arguments_count) {
+    return CallBuiltin<
+        typename BuiltinCallDescriptor::NewRestArgumentsElements>(
+        isolate, {frame, formal_parameter_count, arguments_count});
+  }
   V<Boolean> CallBuiltin_StringEqual(Isolate* isolate, V<String> left,
                                      V<String> right, V<WordPtr> length) {
     return CallBuiltin<typename BuiltinCallDescriptor::StringEqual>(
@@ -1826,6 +1878,11 @@ class AssemblerOpInterface {
     return CallRuntime<typename RuntimeCallDescriptor::TerminateExecution>(
         isolate, frame_state, context, {});
   }
+  V<Object> CallRuntime_TryMigrateInstance(Isolate* isolate, V<Context> context,
+                                           V<HeapObject> heap_object) {
+    return CallRuntime<typename RuntimeCallDescriptor::TryMigrateInstance>(
+        isolate, context, {heap_object});
+  }
 
   OpIndex CallAndCatchException(OpIndex callee, OpIndex frame_state,
                                 base::Vector<const OpIndex> arguments,
@@ -1892,6 +1949,16 @@ class AssemblerOpInterface {
       return;
     }
     stack().ReduceDeoptimize(frame_state, parameters);
+  }
+  void Deoptimize(OpIndex frame_state, DeoptimizeReason reason,
+                  const FeedbackSource& feedback) {
+    if (V8_UNLIKELY(stack().generating_unreachable_operations())) {
+      return;
+    }
+    Zone* zone = stack().output_graph().graph_zone();
+    const DeoptimizeParameters* params =
+        zone->New<DeoptimizeParameters>(reason, feedback);
+    Deoptimize(frame_state, params);
   }
 
   void TrapIf(OpIndex condition, TrapId trap_id) {
@@ -2004,6 +2071,9 @@ class AssemblerOpInterface {
     stack().Branch(condition, if_true, if_false, hint);
     return stack().Bind(if_false);
   }
+  bool GotoIf(ConditionWithHint condition, Block* if_true) {
+    return GotoIf(condition.condition(), if_true, condition.hint());
+  }
   // Return `true` if the control flow after the conditional jump is reachable.
   bool GotoIfNot(OpIndex condition, Block* if_false,
                  BranchHint hint = BranchHint::kNone) {
@@ -2013,6 +2083,9 @@ class AssemblerOpInterface {
     Block* if_true = stack().NewBlock();
     stack().Branch(condition, if_true, if_false, hint);
     return stack().Bind(if_true);
+  }
+  bool GotoIfNot(ConditionWithHint condition, Block* if_false) {
+    return GotoIfNot(condition.condition(), if_false, condition.hint());
   }
 
   OpIndex CallBuiltin(Builtin builtin, OpIndex frame_state,
@@ -2219,6 +2292,50 @@ class AssemblerOpInterface {
                             StringComparisonOp::Kind::kLessThanOrEqual);
   }
 
+  V<Smi> ArgumentsLength() {
+    if (V8_UNLIKELY(stack().generating_unreachable_operations())) {
+      return OpIndex::Invalid();
+    }
+    return stack().ReduceArgumentsLength(ArgumentsLengthOp::Kind::kArguments,
+                                         0);
+  }
+  V<Smi> RestLength(int formal_parameter_count) {
+    DCHECK_LE(0, formal_parameter_count);
+    if (V8_UNLIKELY(stack().generating_unreachable_operations())) {
+      return OpIndex::Invalid();
+    }
+    return stack().ReduceArgumentsLength(ArgumentsLengthOp::Kind::kRest,
+                                         formal_parameter_count);
+  }
+
+  V<FixedArray> NewArgumentsElements(V<Smi> arguments_count,
+                                     CreateArgumentsType type,
+                                     int formal_parameter_count) {
+    DCHECK_LE(0, formal_parameter_count);
+    if (V8_UNLIKELY(stack().generating_unreachable_operations())) {
+      return OpIndex::Invalid();
+    }
+    return stack().ReduceNewArgumentsElements(arguments_count, type,
+                                              formal_parameter_count);
+  }
+
+  V<Word32> CompareMaps(V<HeapObject> heap_object,
+                        const ZoneRefSet<Map>& maps) {
+    if (V8_UNLIKELY(stack().generating_unreachable_operations())) {
+      return OpIndex::Invalid();
+    }
+    return stack().ReduceCompareMaps(heap_object, maps);
+  }
+
+  void CheckMaps(V<HeapObject> heap_object, OpIndex frame_state,
+                 const ZoneRefSet<Map>& maps, CheckMapsFlags flags,
+                 const FeedbackSource& feedback) {
+    if (V8_UNLIKELY(stack().generating_unreachable_operations())) {
+      return;
+    }
+    stack().ReduceCheckMaps(heap_object, frame_state, maps, flags, feedback);
+  }
+
   template <typename Rep>
   V<Rep> resolve(const V<Rep>& v) {
     return v;
@@ -2267,36 +2384,37 @@ class AssemblerOpInterface {
   }
 
   template <typename L>
-  void ControlFlowHelper_GotoIf(V<Word32> condition, L& label,
-                                const typename L::const_or_values_t& values,
-                                BranchHint hint) {
+  void ControlFlowHelper_GotoIf(ConditionWithHint condition, L& label,
+                                const typename L::const_or_values_t& values) {
     auto resolved_values = detail::ResolveAll(stack(), values);
-    label.GotoIf(stack(), condition, hint, resolved_values);
+    label.GotoIf(stack(), condition.condition(), condition.hint(),
+                 resolved_values);
   }
 
   template <typename L>
-  void ControlFlowHelper_GotoIfNot(V<Word32> condition, L& label,
-                                   const typename L::const_or_values_t& values,
-                                   BranchHint hint) {
+  void ControlFlowHelper_GotoIfNot(
+      ConditionWithHint condition, L& label,
+      const typename L::const_or_values_t& values) {
     auto resolved_values = detail::ResolveAll(stack(), values);
-    label.GotoIfNot(stack(), condition, hint, resolved_values);
+    label.GotoIfNot(stack(), condition.condition(), condition.hint(),
+                    resolved_values);
   }
 
-  bool ControlFlowHelper_If(V<Word32> condition, bool negate, BranchHint hint) {
+  bool ControlFlowHelper_If(ConditionWithHint condition, bool negate) {
     Block* then_block = stack().NewBlock();
     Block* else_block = stack().NewBlock();
     Block* end_block = stack().NewBlock();
     if (negate) {
-      this->Branch(condition, else_block, then_block, hint);
+      this->Branch(condition, else_block, then_block);
     } else {
-      this->Branch(condition, then_block, else_block, hint);
+      this->Branch(condition, then_block, else_block);
     }
     if_scope_stack_.emplace_back(else_block, end_block);
     return stack().Bind(then_block);
   }
 
   template <typename F>
-  bool ControlFlowHelper_ElseIf(F&& condition_builder, BranchHint hint) {
+  bool ControlFlowHelper_ElseIf(F&& condition_builder) {
     DCHECK_LT(0, if_scope_stack_.size());
     auto& info = if_scope_stack_.back();
     Block* else_block = info.else_block;
@@ -2304,7 +2422,7 @@ class AssemblerOpInterface {
     if (!stack().Bind(else_block)) return false;
     Block* then_block = stack().NewBlock();
     info.else_block = stack().NewBlock();
-    stack().Branch(condition_builder(), then_block, info.else_block, hint);
+    stack().Branch(condition_builder(), then_block, info.else_block);
     return stack().Bind(then_block);
   }
 

@@ -5,10 +5,16 @@
 #ifndef V8_HEAP_OBJECTS_VISITING_H_
 #define V8_HEAP_OBJECTS_VISITING_H_
 
+#include "src/base/logging.h"
+#include "src/objects/bytecode-array.h"
+#include "src/objects/contexts.h"
 #include "src/objects/fixed-array.h"
+#include "src/objects/js-weak-refs.h"
 #include "src/objects/map.h"
 #include "src/objects/object-list-macros.h"
 #include "src/objects/objects.h"
+#include "src/objects/shared-function-info.h"
+#include "src/objects/string.h"
 #include "src/objects/visitors.h"
 
 namespace v8 {
@@ -135,19 +141,77 @@ class HeapVisitor : public ObjectVisitorWithCageBases {
   static V8_INLINE T Cast(HeapObject object);
 };
 
+// These strings can be sources of safe string transitions. Transitions are safe
+// if they don't result in invalidated slots. It's safe to read the length field
+// on such strings as that's common for all.
+//
+// No special visitors are generated for such strings.
+// V(VisitorId, TypeName)
+#define SAFE_STRING_TRANSITION_SOURCES(V) \
+  V(SeqOneByteString, SeqOneByteString)   \
+  V(SeqTwoByteString, SeqTwoByteString)
+
+// These strings can be sources of unsafe string transitions.
+// V(VisitorId, TypeName)
+#define UNSAFE_STRING_TRANSITION_SOURCES(V) \
+  V(ExternalString, ExternalString)         \
+  V(ConsString, ConsString)                 \
+  V(SlicedString, SlicedString)
+
+// V(VisitorId, TypeName)
+#define UNSAFE_STRING_TRANSITION_TARGETS(V) \
+  UNSAFE_STRING_TRANSITION_SOURCES(V)       \
+  V(ShortcutCandidate, ConsString)          \
+  V(ThinString, ThinString)
+
+// A HeapVisitor that allows for concurrently tracing through objects. Tracing
+// through objects with unsafe shape changes is guarded by
+// `EnableConcurrentVisitation()` which defaults to off.
+template <typename ResultType, typename ConcreteVisitor>
+class ConcurrentHeapVisitor : public HeapVisitor<ResultType, ConcreteVisitor> {
+ public:
+  V8_INLINE explicit ConcurrentHeapVisitor(Isolate* isolate);
+
+ protected:
+  V8_INLINE static constexpr bool EnableConcurrentVisitation() { return false; }
+
+#define VISIT_AS_LOCKED_STRING(VisitorId, TypeName) \
+  V8_INLINE ResultType Visit##TypeName(Map map, TypeName object);
+
+  UNSAFE_STRING_TRANSITION_SOURCES(VISIT_AS_LOCKED_STRING)
+#undef VISIT_AS_LOCKED_STRING
+
+  template <typename T>
+  static V8_INLINE T Cast(HeapObject object);
+
+ private:
+  template <typename T>
+  V8_INLINE ResultType VisitStringLocked(T object);
+
+  friend class HeapVisitor<ResultType, ConcreteVisitor>;
+};
+
 template <typename ConcreteVisitor>
-class NewSpaceVisitor : public HeapVisitor<int, ConcreteVisitor> {
+class NewSpaceVisitor : public ConcurrentHeapVisitor<int, ConcreteVisitor> {
  public:
   V8_INLINE explicit NewSpaceVisitor(Isolate* isolate);
+
+  // Special cases: Unreachable visitors for objects that are never found in the
+  // young generation.
+  void VisitCodePointer(Code, CodeObjectSlot) final { UNREACHABLE(); }
+  void VisitCodeTarget(RelocInfo*) final { UNREACHABLE(); }
+  void VisitEmbeddedPointer(RelocInfo*) final { UNREACHABLE(); }
+  void VisitMapPointer(HeapObject) override { UNREACHABLE(); }
 
  protected:
   V8_INLINE static constexpr bool ShouldVisitMapPointer() { return false; }
 
-  // Special cases for young generation.
-  V8_INLINE int VisitNativeContext(Map map, NativeContext object);
-  V8_INLINE int VisitBytecodeArray(Map map, BytecodeArray object);
-  V8_INLINE int VisitSharedFunctionInfo(Map map, SharedFunctionInfo object);
-  V8_INLINE int VisitWeakCell(Map map, WeakCell weak_cell);
+  // Special cases: Unreachable visitors for objects that are never found in the
+  // young generation.
+  int VisitNativeContext(Map, NativeContext) { UNREACHABLE(); }
+  int VisitBytecodeArray(Map, BytecodeArray) { UNREACHABLE(); }
+  int VisitSharedFunctionInfo(Map map, SharedFunctionInfo) { UNREACHABLE(); }
+  int VisitWeakCell(Map, WeakCell) { UNREACHABLE(); }
 
   friend class HeapVisitor<int, ConcreteVisitor>;
 };

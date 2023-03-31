@@ -420,16 +420,16 @@ void Serializer::InitializeCodeAddressMap() {
   code_address_map_ = std::make_unique<CodeAddressMap>(isolate_);
 }
 
-InstructionStream Serializer::CopyCode(InstructionStream code) {
+InstructionStream Serializer::CopyCode(InstructionStream istream) {
   code_buffer_.clear();  // Clear buffer without deleting backing store.
   // Add InstructionStream padding which is usually added by the allocator.
   // While this doesn't guarantee the exact same alignment, it's enough to
   // fulfill the alignment requirements of writes during relocation.
   code_buffer_.resize(InstructionStream::kCodeAlignmentMinusCodeHeader);
-  int size = code.CodeSize();
+  int size = istream.Size();
   code_buffer_.insert(code_buffer_.end(),
-                      reinterpret_cast<byte*>(code.address()),
-                      reinterpret_cast<byte*>(code.address() + size));
+                      reinterpret_cast<byte*>(istream.address()),
+                      reinterpret_cast<byte*>(istream.address() + size));
   // When pointer compression is enabled the checked cast will try to
   // decompress map field of off-heap InstructionStream object.
   return InstructionStream::unchecked_cast(
@@ -778,8 +778,16 @@ void Serializer::ObjectSerializer::Serialize() {
         undefined);
   }
 
-  // We don't expect fillers.
+#if V8_ENABLE_WEBASSEMBLY
+  // The padding for wasm null is a free space filler. We put it into the roots
+  // table to be able to skip its payload when serializing the read only heap
+  // in the ReadOnlyHeapImageSerializer.
+  DCHECK_IMPLIES(
+      !object_->SafeEquals(ReadOnlyRoots(isolate()).wasm_null_padding()),
+      !object_->IsFreeSpaceOrFiller(cage_base));
+#else
   DCHECK(!object_->IsFreeSpaceOrFiller(cage_base));
+#endif
 
   SerializeObject();
 }
@@ -1100,7 +1108,7 @@ void Serializer::ObjectSerializer::VisitExternalReference(RelocInfo* rinfo) {
 }
 
 void Serializer::ObjectSerializer::VisitInternalReference(RelocInfo* rinfo) {
-  Address entry = rinfo->code().InstructionStart();
+  Address entry = rinfo->code().instruction_start();
   DCHECK_GE(rinfo->target_internal_reference(), entry);
   uintptr_t target_offset = rinfo->target_internal_reference() - entry;
   static_assert(InstructionStream::kOnHeapBodyIsContiguous);
@@ -1242,13 +1250,13 @@ void Serializer::ObjectSerializer::OutputRawData(Address up_to) {
                                sizeof(field_value),
                                reinterpret_cast<const byte*>(&field_value));
     } else if (object_->IsCode(cage_base)) {
-      // code_entry_point field contains a raw value that will be recomputed
+      // instruction_start field contains a raw value that will be recomputed
       // after deserialization, so write zeros to keep the snapshot
       // deterministic.
       static byte field_value[kSystemPointerSize] = {0};
       OutputRawWithCustomField(sink_, object_start, base, bytes_to_output,
-                               Code::kCodeEntryPointOffset, sizeof(field_value),
-                               field_value);
+                               Code::kInstructionStartOffset,
+                               sizeof(field_value), field_value);
     } else if (object_->IsSeqString()) {
       // SeqStrings may contain padding. Serialize the padding bytes as 0s to
       // make the snapshot content deterministic.
@@ -1293,7 +1301,7 @@ void Serializer::ObjectSerializer::SerializeInstructionStream(Map map,
   // object and wipe all pointers in the copy, which we then serialize.
   InstructionStream off_heap_istream = serializer_->CopyCode(*on_heap_istream);
   for (RelocIterator it(*code, off_heap_istream, relocation_info,
-                        code->constant_pool(), kWipeOutModeMask);
+                        kWipeOutModeMask);
        !it.done(); it.next()) {
     RelocInfo* rinfo = it.rinfo();
     rinfo->WipeOut();
@@ -1346,7 +1354,6 @@ void Serializer::ObjectSerializer::SerializeInstructionStream(Map map,
   // serialization, i.e. no backrefs or roots.
   RelocInfoObjectPreSerializer pre_serializer(serializer_);
   for (RelocIterator it(*code, *on_heap_istream, relocation_info,
-                        code->constant_pool(),
                         InstructionStream::BodyDescriptor::kRelocModeMask);
        !it.done(); it.next()) {
     it.rinfo()->Visit(&pre_serializer);
@@ -1358,7 +1365,6 @@ void Serializer::ObjectSerializer::SerializeInstructionStream(Map map,
   // knowing that we will not do a recursive serialization.
   // TODO(leszeks): Add a scope that DCHECKs this.
   for (RelocIterator it(*code, *on_heap_istream, relocation_info,
-                        code->constant_pool(),
                         InstructionStream::BodyDescriptor::kRelocModeMask);
        !it.done(); it.next()) {
     it.rinfo()->Visit(this);

@@ -913,9 +913,7 @@ HEAP_BROKER_OBJECT_LIST(DEFINE_IS)
 HEAP_BROKER_BACKGROUND_SERIALIZED_OBJECT_LIST(DEFINE_AS)
 #undef DEFINE_AS
 
-bool ObjectRef::equals(const ObjectRef& other) const {
-  return data_ == other.data_;
-}
+bool ObjectRef::equals(ObjectRef other) const { return data_ == other.data_; }
 
 ContextRef ContextRef::previous(JSHeapBroker* broker, size_t* depth) const {
   DCHECK_NOT_NULL(depth);
@@ -1123,7 +1121,7 @@ bool MapRef::supports_fast_array_resize(JSHeapBroker* broker) const {
 namespace {
 
 void RecordConsistentJSFunctionViewDependencyIfNeeded(
-    const JSHeapBroker* broker, const JSFunctionRef& ref, JSFunctionData* data,
+    const JSHeapBroker* broker, JSFunctionRef ref, JSFunctionData* data,
     JSFunctionData::UsedField used_field) {
   if (!data->has_any_used_field()) {
     // Deduplicate dependencies.
@@ -1215,7 +1213,7 @@ OptionalObjectRef JSObjectRef::RawInobjectPropertyAt(JSHeapBroker* broker,
   return TryMakeRef(broker, value);
 }
 
-bool JSObjectRef::IsElementsTenured(const FixedArrayBaseRef& elements) {
+bool JSObjectRef::IsElementsTenured(FixedArrayBaseRef elements) {
   return !ObjectInYoungGeneration(*elements.object());
 }
 
@@ -1259,7 +1257,7 @@ MapRef MapRef::FindFieldOwner(JSHeapBroker* broker,
   // the descriptor array. It would be useful for same map as well as any
   // other map sharing that descriptor array.
   return MakeRefAssumeMemoryFence(
-      broker, object()->FindFieldOwner(broker->isolate(), descriptor_index));
+      broker, object()->FindFieldOwner(broker->cage_base(), descriptor_index));
 }
 
 OptionalObjectRef StringRef::GetCharAsStringOrUndefined(JSHeapBroker* broker,
@@ -1624,7 +1622,8 @@ OptionalObjectRef MapRef::GetStrongValue(JSHeapBroker* broker,
 
 DescriptorArrayRef MapRef::instance_descriptors(JSHeapBroker* broker) const {
   return MakeRefAssumeMemoryFence(
-      broker, object()->instance_descriptors(broker->isolate(), kAcquireLoad));
+      broker,
+      object()->instance_descriptors(broker->cage_base(), kAcquireLoad));
 }
 
 HeapObjectRef MapRef::prototype(JSHeapBroker* broker) const {
@@ -1635,7 +1634,7 @@ HeapObjectRef MapRef::prototype(JSHeapBroker* broker) const {
 MapRef MapRef::FindRootMap(JSHeapBroker* broker) const {
   // TODO(solanes, v8:7790): Consider caching the result of the root map.
   return MakeRefAssumeMemoryFence(broker,
-                                  object()->FindRootMap(broker->isolate()));
+                                  object()->FindRootMap(broker->cage_base()));
 }
 
 ObjectRef MapRef::GetConstructor(JSHeapBroker* broker) const {
@@ -1765,7 +1764,7 @@ BROKER_NATIVE_CONTEXT_FIELDS(DEF_NATIVE_CONTEXT_ACCESSOR)
 #undef DEF_NATIVE_CONTEXT_ACCESSOR
 
 OptionalJSFunctionRef NativeContextRef::GetConstructorFunction(
-    JSHeapBroker* broker, const MapRef& map) const {
+    JSHeapBroker* broker, MapRef map) const {
   CHECK(map.IsPrimitiveMap());
   switch (map.constructor_function_index()) {
     case Map::kNoConstructorFunctionIndex:
@@ -1831,7 +1830,7 @@ bool ObjectRef::should_access_heap() const {
 }
 
 OptionalObjectRef JSObjectRef::GetOwnConstantElement(
-    JSHeapBroker* broker, const FixedArrayBaseRef& elements_ref, uint32_t index,
+    JSHeapBroker* broker, FixedArrayBaseRef elements_ref, uint32_t index,
     CompilationDependencies* dependencies) const {
   base::Optional<Object> maybe_element = GetOwnConstantElementFromHeap(
       broker, *elements_ref.object(), map(broker).elements_kind(), index);
@@ -2247,8 +2246,8 @@ bool NativeContextRef::GlobalIsDetached(JSHeapBroker* broker) const {
   return !proxy_proto.equals(global_object(broker));
 }
 
-OptionalPropertyCellRef JSGlobalObjectRef::GetPropertyCell(
-    JSHeapBroker* broker, NameRef const& name) const {
+OptionalPropertyCellRef JSGlobalObjectRef::GetPropertyCell(JSHeapBroker* broker,
+                                                           NameRef name) const {
   base::Optional<PropertyCell> maybe_cell =
       ConcurrentLookupIterator::TryGetPropertyCell(
           broker->isolate(), broker->local_isolate_or_isolate(),
@@ -2258,7 +2257,7 @@ OptionalPropertyCellRef JSGlobalObjectRef::GetPropertyCell(
   return TryMakeRef(broker, *maybe_cell);
 }
 
-std::ostream& operator<<(std::ostream& os, const ObjectRef& ref) {
+std::ostream& operator<<(std::ostream& os, ObjectRef ref) {
   if (!v8_flags.concurrent_recompilation) {
     // We cannot be in a background thread so it's safe to read the heap.
     AllowHandleDereference allow_handle_dereference;

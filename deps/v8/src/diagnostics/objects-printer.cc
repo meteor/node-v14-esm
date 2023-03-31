@@ -1617,6 +1617,16 @@ void JSIteratorDropHelper::JSIteratorDropHelperPrint(std::ostream& os) {
   JSObjectPrintBody(os, *this);
 }
 
+void JSIteratorFlatMapHelper::JSIteratorFlatMapHelperPrint(std::ostream& os) {
+  JSIteratorHelperPrintHeader(os, "JSIteratorFlatMapHelper");
+  os << "\n - mapper: " << Brief(mapper());
+  os << "\n - counter: " << counter();
+  os << "\n - innerIterator.object" << Brief(innerIterator_object());
+  os << "\n - innerIterator.next" << Brief(innerIterator_next());
+  os << "\n - innerAlive" << innerAlive();
+  JSObjectPrintBody(os, *this);
+}
+
 void JSWeakMap::JSWeakMapPrint(std::ostream& os) {
   JSObjectPrintHeader(os, *this, "JSWeakMap");
   os << "\n - table: " << Brief(table());
@@ -1893,8 +1903,8 @@ void Code::CodePrint(std::ostream& os) {
   if (has_instruction_stream()) {
     os << "\n - instruction_stream: " << Brief(raw_instruction_stream());
   }
-  os << "\n - code_entry_point: "
-     << reinterpret_cast<void*>(code_entry_point());
+  os << "\n - instruction_start: "
+     << reinterpret_cast<void*>(instruction_start());
   os << "\n - kind_specific_flags: " << kind_specific_flags(kRelaxedLoad);
   os << "\n";
   if (has_instruction_stream()) {

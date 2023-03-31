@@ -6,6 +6,7 @@
 #define V8_MAGLEV_MAGLEV_IR_H_
 
 #include "src/base/bit-field.h"
+#include "src/base/enum-set.h"
 #include "src/base/logging.h"
 #include "src/base/macros.h"
 #include "src/base/small-vector.h"
@@ -31,7 +32,6 @@
 #include "src/objects/smi.h"
 #include "src/roots/roots.h"
 #include "src/utils/utils.h"
-#include "src/zone/zone-handle-set.h"
 #include "src/zone/zone.h"
 
 namespace v8 {
@@ -3524,7 +3524,7 @@ class GetIterator : public FixedInputValueNodeT<2, GetIterator> {
 
  public:
   explicit GetIterator(uint64_t bitfield, int load_slot, int call_slot,
-                       const compiler::FeedbackVectorRef& feedback)
+                       compiler::FeedbackVectorRef feedback)
       : Base(bitfield),
         load_slot_(load_slot),
         call_slot_(call_slot),
@@ -3721,7 +3721,7 @@ class Constant : public FixedInputValueNodeT<0, Constant> {
  public:
   using OutputRegister = Register;
 
-  explicit Constant(uint64_t bitfield, const compiler::HeapObjectRef& object)
+  explicit Constant(uint64_t bitfield, compiler::HeapObjectRef object)
       : Base(bitfield), object_(object) {}
 
   bool ToBoolean(LocalIsolate* local_isolate) const {
@@ -3741,7 +3741,7 @@ class Constant : public FixedInputValueNodeT<0, Constant> {
   void DoLoadToRegister(MaglevAssembler*, OutputRegister);
   Handle<Object> DoReify(LocalIsolate* isolate);
 
-  const compiler::HeapObjectRef& ref() const { return object_; }
+  compiler::HeapObjectRef ref() const { return object_; }
 
  private:
   const compiler::HeapObjectRef object_;
@@ -3800,7 +3800,7 @@ class CreateArrayLiteral : public FixedInputValueNodeT<0, CreateArrayLiteral> {
 
  public:
   explicit CreateArrayLiteral(uint64_t bitfield,
-                              const compiler::HeapObjectRef& constant_elements,
+                              compiler::HeapObjectRef constant_elements,
                               const compiler::FeedbackSource& feedback,
                               int flags)
       : Base(bitfield),
@@ -3832,9 +3832,10 @@ class CreateShallowArrayLiteral
   using Base = FixedInputValueNodeT<0, CreateShallowArrayLiteral>;
 
  public:
-  explicit CreateShallowArrayLiteral(
-      uint64_t bitfield, const compiler::HeapObjectRef& constant_elements,
-      const compiler::FeedbackSource& feedback, int flags)
+  explicit CreateShallowArrayLiteral(uint64_t bitfield,
+                                     compiler::HeapObjectRef constant_elements,
+                                     const compiler::FeedbackSource& feedback,
+                                     int flags)
       : Base(bitfield),
         constant_elements_(constant_elements),
         feedback_(feedback),
@@ -3866,7 +3867,7 @@ class CreateObjectLiteral
  public:
   explicit CreateObjectLiteral(
       uint64_t bitfield,
-      const compiler::ObjectBoilerplateDescriptionRef& boilerplate_descriptor,
+      compiler::ObjectBoilerplateDescriptionRef boilerplate_descriptor,
       const compiler::FeedbackSource& feedback, int flags)
       : Base(bitfield),
         boilerplate_descriptor_(boilerplate_descriptor),
@@ -3922,7 +3923,7 @@ class CreateShallowObjectLiteral
  public:
   explicit CreateShallowObjectLiteral(
       uint64_t bitfield,
-      const compiler::ObjectBoilerplateDescriptionRef& boilerplate_descriptor,
+      compiler::ObjectBoilerplateDescriptionRef boilerplate_descriptor,
       const compiler::FeedbackSource& feedback, int flags)
       : Base(bitfield),
         boilerplate_descriptor_(boilerplate_descriptor),
@@ -4080,8 +4081,7 @@ class CreateRegExpLiteral
   using Base = FixedInputValueNodeT<0, CreateRegExpLiteral>;
 
  public:
-  explicit CreateRegExpLiteral(uint64_t bitfield,
-                               const compiler::StringRef& pattern,
+  explicit CreateRegExpLiteral(uint64_t bitfield, compiler::StringRef pattern,
                                const compiler::FeedbackSource& feedback,
                                int flags)
       : Base(bitfield), pattern_(pattern), feedback_(feedback), flags_(flags) {}
@@ -4200,7 +4200,7 @@ class CheckMaps : public FixedInputNodeT<1, CheckMaps> {
   using Base = FixedInputNodeT<1, CheckMaps>;
 
  public:
-  explicit CheckMaps(uint64_t bitfield, const ZoneHandleSet<Map>& maps,
+  explicit CheckMaps(uint64_t bitfield, const compiler::ZoneRefSet<Map>& maps,
                      CheckType check_type)
       : Base(bitfield), maps_(maps), check_type_(check_type) {}
 
@@ -4208,7 +4208,7 @@ class CheckMaps : public FixedInputNodeT<1, CheckMaps> {
   static constexpr
       typename Base::InputTypes kInputTypes{ValueRepresentation::kTagged};
 
-  const ZoneHandleSet<Map>& maps() const { return maps_; }
+  const compiler::ZoneRefSet<Map>& maps() const { return maps_; }
 
   static constexpr int kReceiverIndex = 0;
   Input& receiver_input() { return input(kReceiverIndex); }
@@ -4218,7 +4218,7 @@ class CheckMaps : public FixedInputNodeT<1, CheckMaps> {
   void PrintParams(std::ostream&, MaglevGraphLabeller*) const;
 
  private:
-  const ZoneHandleSet<Map> maps_;
+  const compiler::ZoneRefSet<Map> maps_;
   const CheckType check_type_;
 };
 
@@ -4226,7 +4226,7 @@ class CheckValue : public FixedInputNodeT<1, CheckValue> {
   using Base = FixedInputNodeT<1, CheckValue>;
 
  public:
-  explicit CheckValue(uint64_t bitfield, const compiler::HeapObjectRef& value)
+  explicit CheckValue(uint64_t bitfield, compiler::HeapObjectRef value)
       : Base(bitfield), value_(value) {}
 
   static constexpr OpProperties kProperties = OpProperties::EagerDeopt();
@@ -4255,7 +4255,7 @@ class CheckValueEqualsString
 
  public:
   explicit CheckValueEqualsString(uint64_t bitfield,
-                                  const compiler::InternalizedStringRef& value)
+                                  compiler::InternalizedStringRef value)
       : Base(bitfield), value_(value) {}
 
   static constexpr OpProperties kProperties =
@@ -4443,7 +4443,7 @@ class CheckMapsWithMigration
 
  public:
   explicit CheckMapsWithMigration(uint64_t bitfield,
-                                  const ZoneHandleSet<Map>& maps,
+                                  const compiler::ZoneRefSet<Map>& maps,
                                   CheckType check_type)
       : Base(bitfield), maps_(maps), check_type_(check_type) {}
 
@@ -4453,7 +4453,7 @@ class CheckMapsWithMigration
   static constexpr
       typename Base::InputTypes kInputTypes{ValueRepresentation::kTagged};
 
-  const ZoneHandleSet<Map>& maps() const { return maps_; }
+  const compiler::ZoneRefSet<Map>& maps() const { return maps_; }
 
   static constexpr int kReceiverIndex = 0;
   Input& receiver_input() { return input(kReceiverIndex); }
@@ -4464,7 +4464,7 @@ class CheckMapsWithMigration
   void PrintParams(std::ostream&, MaglevGraphLabeller*) const;
 
  private:
-  const ZoneHandleSet<Map> maps_;
+  const compiler::ZoneRefSet<Map> maps_;
   const CheckType check_type_;
 };
 
@@ -4685,8 +4685,7 @@ class GetTemplateObject : public FixedInputValueNodeT<1, GetTemplateObject> {
 
  public:
   explicit GetTemplateObject(
-      uint64_t bitfield,
-      const compiler::SharedFunctionInfoRef& shared_function_info,
+      uint64_t bitfield, compiler::SharedFunctionInfoRef shared_function_info,
       const compiler::FeedbackSource& feedback)
       : Base(bitfield),
         shared_function_info_(shared_function_info),
@@ -5659,7 +5658,7 @@ class LoadGlobal : public FixedInputValueNodeT<1, LoadGlobal> {
   using Base = FixedInputValueNodeT<1, LoadGlobal>;
 
  public:
-  explicit LoadGlobal(uint64_t bitfield, const compiler::NameRef& name,
+  explicit LoadGlobal(uint64_t bitfield, compiler::NameRef name,
                       const compiler::FeedbackSource& feedback,
                       TypeofMode typeof_mode)
       : Base(bitfield),
@@ -5672,7 +5671,7 @@ class LoadGlobal : public FixedInputValueNodeT<1, LoadGlobal> {
   static constexpr
       typename Base::InputTypes kInputTypes{ValueRepresentation::kTagged};
 
-  const compiler::NameRef& name() const { return name_; }
+  compiler::NameRef name() const { return name_; }
   compiler::FeedbackSource feedback() const { return feedback_; }
   TypeofMode typeof_mode() const { return typeof_mode_; }
 
@@ -5693,7 +5692,7 @@ class StoreGlobal : public FixedInputValueNodeT<2, StoreGlobal> {
   using Base = FixedInputValueNodeT<2, StoreGlobal>;
 
  public:
-  explicit StoreGlobal(uint64_t bitfield, const compiler::NameRef& name,
+  explicit StoreGlobal(uint64_t bitfield, compiler::NameRef name,
                        const compiler::FeedbackSource& feedback)
       : Base(bitfield), name_(name), feedback_(feedback) {}
 
@@ -5702,7 +5701,7 @@ class StoreGlobal : public FixedInputValueNodeT<2, StoreGlobal> {
   static constexpr typename Base::InputTypes kInputTypes{
       ValueRepresentation::kTagged, ValueRepresentation::kTagged};
 
-  const compiler::NameRef& name() const { return name_; }
+  compiler::NameRef name() const { return name_; }
   compiler::FeedbackSource feedback() const { return feedback_; }
 
   Input& context() { return input(0); }
@@ -5722,7 +5721,7 @@ class LoadNamedGeneric : public FixedInputValueNodeT<2, LoadNamedGeneric> {
   using Base = FixedInputValueNodeT<2, LoadNamedGeneric>;
 
  public:
-  explicit LoadNamedGeneric(uint64_t bitfield, const compiler::NameRef& name,
+  explicit LoadNamedGeneric(uint64_t bitfield, compiler::NameRef name,
                             const compiler::FeedbackSource& feedback)
       : Base(bitfield), name_(name), feedback_(feedback) {}
 
@@ -5754,8 +5753,7 @@ class LoadNamedFromSuperGeneric
   using Base = FixedInputValueNodeT<3, LoadNamedFromSuperGeneric>;
 
  public:
-  explicit LoadNamedFromSuperGeneric(uint64_t bitfield,
-                                     const compiler::NameRef& name,
+  explicit LoadNamedFromSuperGeneric(uint64_t bitfield, compiler::NameRef name,
                                      const compiler::FeedbackSource& feedback)
       : Base(bitfield), name_(name), feedback_(feedback) {}
 
@@ -5789,7 +5787,7 @@ class SetNamedGeneric : public FixedInputValueNodeT<3, SetNamedGeneric> {
   using Base = FixedInputValueNodeT<3, SetNamedGeneric>;
 
  public:
-  explicit SetNamedGeneric(uint64_t bitfield, const compiler::NameRef& name,
+  explicit SetNamedGeneric(uint64_t bitfield, compiler::NameRef name,
                            const compiler::FeedbackSource& feedback)
       : Base(bitfield), name_(name), feedback_(feedback) {}
 
@@ -5886,8 +5884,7 @@ class DefineNamedOwnGeneric
   using Base = FixedInputValueNodeT<3, DefineNamedOwnGeneric>;
 
  public:
-  explicit DefineNamedOwnGeneric(uint64_t bitfield,
-                                 const compiler::NameRef& name,
+  explicit DefineNamedOwnGeneric(uint64_t bitfield, compiler::NameRef name,
                                  const compiler::FeedbackSource& feedback)
       : Base(bitfield), name_(name), feedback_(feedback) {}
 
@@ -6099,6 +6096,22 @@ class ConstantGapMove : public FixedInputNodeT<0, ConstantGapMove> {
 
 class MergePointInterpreterFrameState;
 
+// ValueRepresentation doesn't distinguish between Int32 and TruncatedInt32:
+// both are Int32. For Phi untagging however, it's interesting to have a
+// difference between the 2, as a TruncatedInt32 would allow untagging to
+// Float64, whereas a Int32 use wouldn't (because it would require a deopting
+// Float64->Int32 conversion, whereas the truncating version of this conversion
+// cannot deopt). We thus use a UseRepresentation to record use hints for Phis.
+enum class UseRepresentation : uint8_t {
+  kTagged,
+  kInt32,
+  kTruncatedInt32,
+  kUint32,
+  kFloat64,
+};
+typedef base::EnumSet<ValueRepresentation> ValueRepresentationSet;
+typedef base::EnumSet<UseRepresentation> UseRepresentationSet;
+
 // TODO(verwaest): It may make more sense to buffer phis in merged_states until
 // we set up the interpreter frame state for code generation. At that point we
 // can generate correctly-sized phis.
@@ -6124,6 +6137,11 @@ class Phi : public ValueNodeT<Phi> {
   using Node::set_input;
 
   bool is_exception_phi() const { return input_count() == 0; }
+  bool is_loop_phi() const;
+
+  bool is_backedge_offset(int i) const {
+    return is_loop_phi() && i == input_count() - 1;
+  }
 
   void VerifyInputs(MaglevGraphLabeller* graph_labeller) const;
   void MarkTaggedInputsAsDecompressing() {
@@ -6137,12 +6155,23 @@ class Phi : public ValueNodeT<Phi> {
 
   BasicBlock* predecessor_at(int i);
 
+  void RecordUseReprHint(UseRepresentation repr) {
+    RecordUseReprHint(UseRepresentationSet{repr});
+  }
+
+  void RecordUseReprHint(UseRepresentationSet repr_mask);
+
+  UseRepresentationSet get_uses_repr_hints() { return uses_repr_hint_; }
+
  private:
   Phi** next() { return &next_; }
 
   const interpreter::Register owner_;
   Phi* next_ = nullptr;
   MergePointInterpreterFrameState* const merge_state_;
+
+  UseRepresentationSet uses_repr_hint_;
+
   friend base::ThreadedListTraits<Phi>;
 };
 
@@ -6158,8 +6187,7 @@ class Call : public ValueNodeT<Call> {
 
   // We need enough inputs to have these fixed inputs plus the maximum arguments
   // to a function call.
-  static_assert(kMaxInputs >=
-                kFixedInputCount + InstructionStream::kMaxArguments);
+  static_assert(kMaxInputs >= kFixedInputCount + Code::kMaxArguments);
 
   // This ctor is used when for variable input counts.
   // Inputs must be initialized manually.
@@ -6215,8 +6243,7 @@ class Construct : public ValueNodeT<Construct> {
 
   // We need enough inputs to have these fixed inputs plus the maximum arguments
   // to a function call.
-  static_assert(kMaxInputs >=
-                kFixedInputCount + InstructionStream::kMaxArguments);
+  static_assert(kMaxInputs >= kFixedInputCount + Code::kMaxArguments);
 
   // This ctor is used when for variable input counts.
   // Inputs must be initialized manually.
@@ -6498,8 +6525,7 @@ class CallSelf : public ValueNodeT<CallSelf> {
 
   // We need enough inputs to have these fixed inputs plus the maximum arguments
   // to a function call.
-  static_assert(kMaxInputs >=
-                kFixedInputCount + InstructionStream::kMaxArguments);
+  static_assert(kMaxInputs >= kFixedInputCount + Code::kMaxArguments);
 
   // This ctor is used when for variable input counts.
   // Inputs must be initialized manually.
@@ -6554,8 +6580,7 @@ class CallKnownJSFunction : public ValueNodeT<CallKnownJSFunction> {
 
   // We need enough inputs to have these fixed inputs plus the maximum arguments
   // to a function call.
-  static_assert(kMaxInputs >=
-                kFixedInputCount + InstructionStream::kMaxArguments);
+  static_assert(kMaxInputs >= kFixedInputCount + Code::kMaxArguments);
 
   // This ctor is used when for variable input counts.
   // Inputs must be initialized manually.
@@ -6775,8 +6800,7 @@ class ThrowReferenceErrorIfHole
   using Base = FixedInputNodeT<1, ThrowReferenceErrorIfHole>;
 
  public:
-  explicit ThrowReferenceErrorIfHole(uint64_t bitfield,
-                                     const compiler::NameRef& name)
+  explicit ThrowReferenceErrorIfHole(uint64_t bitfield, compiler::NameRef name)
       : Base(bitfield), name_(name) {}
 
   static constexpr OpProperties kProperties =
@@ -6784,7 +6808,7 @@ class ThrowReferenceErrorIfHole
   static constexpr
       typename Base::InputTypes kInputTypes{ValueRepresentation::kTagged};
 
-  const compiler::NameRef& name() const { return name_; }
+  compiler::NameRef name() const { return name_; }
 
   Input& value() { return Node::input(0); }
 

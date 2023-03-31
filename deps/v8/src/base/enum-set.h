@@ -21,7 +21,7 @@ class EnumSet {
  public:
   constexpr EnumSet() = default;
 
-  explicit constexpr EnumSet(std::initializer_list<E> init) {
+  constexpr EnumSet(std::initializer_list<E> init) {
     T bits = 0;
     for (E e : init) bits |= Mask(e);
     bits_ = bits;
@@ -33,6 +33,12 @@ class EnumSet {
   }
   constexpr bool contains_any(EnumSet set) const {
     return (bits_ & set.bits_) != 0;
+  }
+  constexpr bool contains_only(E element) const {
+    return bits_ == Mask(element);
+  }
+  constexpr bool is_subset_of(EnumSet set) const {
+    return (bits_ & set.bits_) == bits_;
   }
   void Add(E element) { bits_ |= Mask(element); }
   void Add(EnumSet set) { bits_ |= set.bits_; }

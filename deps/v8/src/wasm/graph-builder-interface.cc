@@ -738,6 +738,9 @@ class WasmGraphBuildingInterface {
       case WKI::kUninstantiated:
       case WKI::kGeneric:
         return false;
+      case WKI::kIntToString:
+        result = builder_->WellKnown_IntToString(args[0].node, args[1].node);
+        break;
       case WKI::kStringToLowerCaseStringref:
         result = builder_->WellKnown_StringToLowerCaseStringref(
             args[0].node, NullCheckFor(args[0].type));
@@ -745,10 +748,6 @@ class WasmGraphBuildingInterface {
     }
     assumptions_->RecordAssumption(index, import);
     SetAndTypeNode(&returns[0], result);
-    if (v8_flags.trace_wasm_inlining) {
-      PrintF("[function %d: import %d is well-known built-in %s]\n",
-             func_index_, index, WellKnownImportName(import));
-    }
     return true;
   }
 
@@ -821,8 +820,8 @@ class WasmGraphBuildingInterface {
     for (int i = 0; i < num_cases; i++) {
       const uint32_t expected_function_index = feedback->function_index(i);
 
-      if (v8_flags.trace_wasm_speculative_inlining) {
-        PrintF("[Function #%d call #%d: graph support for inlining #%d]\n",
+      if (v8_flags.trace_wasm_inlining) {
+        PrintF("[function %d: call #%d: graph support for inlining #%d]\n",
                func_index_, feedback_instruction_index_ - 1,
                expected_function_index);
       }
@@ -913,8 +912,8 @@ class WasmGraphBuildingInterface {
     for (int i = 0; i < num_cases; i++) {
       const uint32_t expected_function_index = feedback->function_index(i);
 
-      if (v8_flags.trace_wasm_speculative_inlining) {
-        PrintF("[Function #%d call #%d: graph support for inlining #%d]\n",
+      if (v8_flags.trace_wasm_inlining) {
+        PrintF("[function %d: call #%d: graph support for inlining #%d]\n",
                func_index_, feedback_instruction_index_ - 1,
                expected_function_index);
       }

@@ -63,12 +63,11 @@ class AsyncHooks {
   async_id_t GetExecutionAsyncId() const;
   async_id_t GetTriggerAsyncId() const;
 
-  Local<Object> CreateHook(const v8::FunctionCallbackInfo<v8::Value>& args);
+  Local<Object> CreateHook(const v8::FunctionCallbackInfo<v8::Value>& info);
 
   Persistent<FunctionTemplate> async_hook_ctor;
 
  private:
-  base::RecursiveMutex async_wraps_mutex_;
   std::vector<std::shared_ptr<AsyncHooksWrap>> async_wraps_;
   Isolate* isolate_;
   Persistent<ObjectTemplate> async_hooks_templ;

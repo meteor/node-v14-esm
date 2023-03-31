@@ -536,6 +536,7 @@ class V8_EXPORT Isolate {
     kDurationFormat = 117,
     kInvalidatedNumberStringPrototypeNoReplaceProtector = 118,
     kRegExpUnicodeSetIncompatibilitiesWithUnicodeMode = 119,  // Unused.
+    kImportAssertionDeprecatedSyntax = 120,
 
     // If you add new values here, you'll also need to update Chromium's:
     // web_feature.mojom, use_counter_callback.cc, and enums.xml. V8 changes to
@@ -1673,10 +1674,11 @@ uint32_t Isolate::GetNumberOfDataSlots() {
 
 template <class T>
 MaybeLocal<T> Isolate::GetDataFromSnapshotOnce(size_t index) {
-  T* data =
-      internal::ValueHelper::SlotAsValue<T>(GetDataFromSnapshotOnce(index));
-  if (data) internal::PerformCastCheck(data);
-  return Local<T>(data);
+  auto slot = GetDataFromSnapshotOnce(index);
+  if (slot) {
+    internal::PerformCastCheck(internal::ValueHelper::SlotAsValue<T>(slot));
+  }
+  return Local<T>::FromSlot(slot);
 }
 
 }  // namespace v8

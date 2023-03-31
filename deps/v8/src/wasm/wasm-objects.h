@@ -611,8 +611,9 @@ class WasmExportedFunction : public JSFunction {
   V8_EXPORT_PRIVATE static bool IsWasmExportedFunction(Object object);
 
   V8_EXPORT_PRIVATE static Handle<WasmExportedFunction> New(
-      Isolate* isolate, Handle<WasmInstanceObject> instance, int func_index,
-      int arity, Handle<Code> export_wrapper);
+      Isolate* isolate, Handle<WasmInstanceObject> instance,
+      Handle<WasmInternalFunction> internal, int func_index, int arity,
+      Handle<Code> export_wrapper);
 
   Address GetWasmCallTarget();
 
@@ -760,6 +761,9 @@ class WasmInternalFunction
   static MaybeHandle<WasmInternalFunction> FromExternal(Handle<Object> external,
                                                         Isolate* isolate);
 
+  V8_EXPORT_PRIVATE static Handle<JSFunction> GetOrCreateExternal(
+      Handle<WasmInternalFunction> internal);
+
   DECL_EXTERNAL_POINTER_ACCESSORS(call_target, Address)
 
   // Dispatched behavior.
@@ -768,6 +772,10 @@ class WasmInternalFunction
   class BodyDescriptor;
 
   TQ_OBJECT_CONSTRUCTORS(WasmInternalFunction)
+ private:
+  // Make this private so it is not use by accident. Use {GetOrCreateExternal}
+  // instead.
+  HeapObject external();
 };
 
 // Information for a WasmJSFunction which is referenced as the function data of
@@ -1062,7 +1070,7 @@ class WasmSuspenderObject
 
 class WasmNull : public TorqueGeneratedWasmNull<WasmNull, HeapObject> {
  public:
-#if V8_STATIC_ROOTS_BOOL || V8_STATIC_ROOT_GENERATION_BOOL
+#if V8_STATIC_ROOTS_BOOL || V8_STATIC_ROOTS_GENERATION_BOOL
   // TODO(manoskouk): Make it smaller if able and needed.
   static constexpr int kSize = 64 * KB + kTaggedSize;
   // Payload should be a multiple of page size.
@@ -1072,6 +1080,7 @@ class WasmNull : public TorqueGeneratedWasmNull<WasmNull, HeapObject> {
                              wasm::kV8MaxWasmStructFields * kSimd128Size);
 
   Address payload() { return ptr() + kHeaderSize - kHeapObjectTag; }
+  static constexpr size_t kPayloadSize = kSize - kTaggedSize;
 #else
   static constexpr int kSize = kTaggedSize;
 #endif

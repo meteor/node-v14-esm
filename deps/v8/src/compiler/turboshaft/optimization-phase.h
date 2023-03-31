@@ -41,8 +41,7 @@ struct AnalyzerBase {
   void Run() {}
   bool OpIsUsed(OpIndex i) const {
     const Operation& op = graph.Get(i);
-    return op.saturated_use_count > 0 ||
-           op.Properties().is_required_when_unused;
+    return op.saturated_use_count > 0 || op.Properties().observable_when_unused;
   }
 
   explicit AnalyzerBase(const Graph& graph, Zone* phase_zone)
@@ -53,7 +52,7 @@ struct AnalyzerBase {
 // Analyzers modify the input graph in-place when they want to mark some
 // Operations as removeable. In order to make that work for operations that have
 // no uses such as Goto and Branch, all operations that have the property
-// `is_required_when_unused` have a non-zero `saturated_use_count`.
+// `observable_when_unused` have a non-zero `saturated_use_count`.
 V8_INLINE bool ShouldSkipOperation(const Operation& op) {
   return op.saturated_use_count == 0;
 }
@@ -186,6 +185,14 @@ class GraphVisitor {
         if (!VisitOp<false>(index, input_block)) break;
       }
     }
+  }
+
+  // {InlineOp} introduces two limitations unlike {CloneAndInlineBlock}:
+  // 1. The input operation must not be emitted anymore as part of its
+  // regular input block;
+  // 2. {InlineOp} must not be used multiple times for the same input op.
+  bool InlineOp(OpIndex index, const Block* input_block) {
+    return VisitOp<false>(index, input_block);
   }
 
   template <bool can_be_invalid = false>
@@ -597,6 +604,11 @@ class GraphVisitor {
     return assembler().ReduceFloatIs(MapToNewGraph(op.input()), op.kind,
                                      op.input_rep);
   }
+  OpIndex AssembleOutputGraphObjectIsNumericValue(
+      const ObjectIsNumericValueOp& op) {
+    return assembler().ReduceObjectIsNumericValue(MapToNewGraph(op.input()),
+                                                  op.kind, op.input_rep);
+  }
   OpIndex AssembleOutputGraphConvertToObject(const ConvertToObjectOp& op) {
     return assembler().ReduceConvertToObject(
         MapToNewGraph(op.input()), op.kind, op.input_rep,
@@ -788,6 +800,25 @@ class GraphVisitor {
     return assembler().ReduceStringComparison(
         MapToNewGraph(op.left()), MapToNewGraph(op.right()), op.kind);
   }
+  OpIndex AssembleOutputGraphArgumentsLength(const ArgumentsLengthOp& op) {
+    return assembler().ReduceArgumentsLength(op.kind,
+                                             op.formal_parameter_count);
+  }
+  OpIndex AssembleOutputGraphNewArgumentsElements(
+      const NewArgumentsElementsOp& op) {
+    return assembler().ReduceNewArgumentsElements(
+        MapToNewGraph(op.arguments_count()), op.type,
+        op.formal_parameter_count);
+  }
+  OpIndex AssembleOutputGraphCompareMaps(const CompareMapsOp& op) {
+    return assembler().ReduceCompareMaps(MapToNewGraph(op.heap_object()),
+                                         op.maps);
+  }
+  OpIndex AssembleOutputGraphCheckMaps(const CheckMapsOp& op) {
+    return assembler().ReduceCheckMaps(MapToNewGraph(op.heap_object()),
+                                       MapToNewGraph(op.frame_state()), op.maps,
+                                       op.flags, op.feedback);
+  }
 
   void CreateOldToNewMapping(OpIndex old_index, OpIndex new_index) {
     if (current_block_needs_variables_) {
@@ -805,6 +836,7 @@ class GraphVisitor {
       assembler().Set(*var, new_index);
       return;
     }
+    DCHECK(!op_mapping_[old_index.id()].valid());
     op_mapping_[old_index.id()] = new_index;
   }
 

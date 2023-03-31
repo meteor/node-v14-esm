@@ -7,6 +7,8 @@
 namespace runtime {
 extern runtime WasmMemoryGrow(Context, WasmInstanceObject, Smi): Smi;
 extern runtime WasmRefFunc(Context, WasmInstanceObject, Smi): JSAny;
+extern runtime WasmInternalFunctionCreateExternal(
+    Context, WasmInternalFunction): JSFunction;
 extern runtime WasmTableInit(
     Context, WasmInstanceObject, Object, Object, Smi, Smi, Smi): JSAny;
 extern runtime WasmTableCopy(
@@ -19,7 +21,8 @@ extern runtime WasmFunctionTableGet(
     Context, WasmInstanceObject, Smi, Smi): JSAny;
 extern runtime WasmFunctionTableSet(
     Context, WasmInstanceObject, Smi, Smi, Object): JSAny;
-extern runtime ThrowWasmError(Context, Smi): JSAny;
+extern runtime ThrowRangeError(Context, Smi): never;
+extern runtime ThrowWasmError(Context, Smi): never;
 extern runtime WasmThrowTypeError(Context, Smi, JSAny): never;
 extern runtime WasmThrow(Context, Object, FixedArray): JSAny;
 extern runtime WasmReThrow(Context, Object): JSAny;
@@ -99,14 +102,18 @@ builtin WasmInt32ToHeapNumber(val: int32): HeapNumber {
   return AllocateHeapNumberWithValue(Convert<float64>(val));
 }
 
-builtin WasmFuncRefToJS(val: WasmInternalFunction|WasmNull): JSFunction|Null|
-    Undefined {
+builtin WasmFuncRefToJS(implicit context: Context)(val: WasmInternalFunction|
+                                                   WasmNull): JSFunction|Null {
   typeswitch (val) {
     case (WasmNull): {
       return Null;
     }
     case (func: WasmInternalFunction): {
-      return func.external;
+      const maybeExternal: Object = func.external;
+      if (maybeExternal != Undefined) {
+        return %RawDownCast<JSFunction>(maybeExternal);
+      }
+      tail runtime::WasmInternalFunctionCreateExternal(context, func);
     }
   }
 }
@@ -303,6 +310,11 @@ builtin WasmRefFunc(index: uint32): Object {
     tail runtime::WasmRefFunc(
         LoadContextFromInstance(instance), instance, SmiFromUint32(index));
   }
+}
+
+builtin WasmInternalFunctionCreateExternal(
+    context: Context, func: WasmInternalFunction): JSFunction {
+  return runtime::WasmInternalFunctionCreateExternal(context, func);
 }
 
 builtin WasmAllocateFixedArray(size: intptr): FixedArray {
@@ -512,7 +524,7 @@ builtin WasmI64AtomicWait(
 
 // Type feedback collection support for `call_ref`.
 
-extern macro GetCodeEntry(Code): RawPtr;
+extern macro LoadCodeInstructionStart(Code): RawPtr;
 
 struct TargetAndInstance {
   target: RawPtr;
@@ -523,7 +535,7 @@ macro GetTargetAndInstance(funcref: WasmInternalFunction): TargetAndInstance {
   const ref = funcref.ref;
   let target = funcref.call_target_ptr;
   if (Signed(target) == IntPtrConstant(0)) {
-    target = GetCodeEntry(funcref.code);
+    target = LoadCodeInstructionStart(funcref.code);
   }
   return TargetAndInstance{target: target, instance: ref};
 }
@@ -833,7 +845,6 @@ builtin WasmStringNewWtf8Array(
   } label OffsetOutOfRange deferred {
     const error = MessageTemplate::kWasmTrapArrayOutOfBounds;
     runtime::ThrowWasmError(context, SmiConstant(error));
-    unreachable;
   }
 }
 builtin WasmStringNewWtf16(
@@ -941,7 +952,6 @@ builtin WasmStringNewWtf16Array(
     const context = LoadContextFromFrame();
     const error = MessageTemplate::kWasmTrapArrayOutOfBounds;
     runtime::ThrowWasmError(context, SmiConstant(error));
-    unreachable;
   } label Runtime deferred {
     const context = LoadContextFromFrame();
     tail runtime::WasmStringNewWtf16Array(
@@ -1024,7 +1034,6 @@ builtin WasmStringEncodeWtf16Array(
   } label OffsetOutOfRange deferred {
     const error = MessageTemplate::kWasmTrapArrayOutOfBounds;
     runtime::ThrowWasmError(LoadContextFromFrame(), SmiConstant(error));
-    unreachable;
   }
 }
 
@@ -1146,7 +1155,6 @@ transitioning builtin WasmStringViewWtf16GetCodeUnit(
   } label OffsetOutOfRange deferred {
     const error = MessageTemplate::kWasmTrapStringOffsetOutOfBounds;
     runtime::ThrowWasmError(LoadContextFromFrame(), SmiConstant(error));
-    unreachable;
   }
 }
 builtin WasmStringViewWtf16Encode(
@@ -1272,6 +1280,27 @@ builtin WasmStringViewIterSlice(
   return (start == end) ?
       kEmptyString :
       string::SubString(string, Convert<uintptr>(start), Convert<uintptr>(end));
+}
+
+builtin WasmIntToString(x: int32, radix: int32): String {
+  if (radix == 10) {
+    const smi = SmiFromInt32(x);
+    const untagged = SmiToInt32(smi);
+    if (x == untagged) {
+      // Queries and populates the NumberToStringCache, but needs tagged
+      // inputs, so only call this for Smis.
+      return NumberToString(smi);
+    }
+    return number::IntToDecimalString(x);
+  }
+
+  // Pretend that Number.prototype.toString was called.
+  if (radix < 2 || radix > 36) {
+    runtime::ThrowRangeError(
+        LoadContextFromInstance(LoadInstanceFromFrame()),
+        SmiConstant(MessageTemplate::kToRadixFormatRange));
+  }
+  return number::IntToString(x, Unsigned(radix));
 }
 
 builtin WasmStringFromCodePoint(codePoint: uint32): String {

@@ -224,6 +224,7 @@ class TypeInferenceAnalysis {
         case Opcode::kTailCall:
         case Opcode::kObjectIs:
         case Opcode::kFloatIs:
+        case Opcode::kObjectIsNumericValue:
         case Opcode::kConvertToObject:
         case Opcode::kConvertToObjectOrDeopt:
         case Opcode::kConvertObjectToPrimitive:
@@ -249,6 +250,10 @@ class TypeInferenceAnalysis {
         case Opcode::kStringSubstring:
         case Opcode::kStringEqual:
         case Opcode::kStringComparison:
+        case Opcode::kArgumentsLength:
+        case Opcode::kNewArgumentsElements:
+        case Opcode::kCompareMaps:
+        case Opcode::kCheckMaps:
           // TODO(nicohartmann@): Support remaining operations. For now we
           // compute fallback types.
           if (op.outputs_rep().size() > 0) {

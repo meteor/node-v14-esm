@@ -172,6 +172,7 @@ enum class SkipRoot {
   kWeak,
   kConservativeStack,
   kTopOfStack,
+  kReadOnlyBuiltins,
 };
 
 enum UnprotectMemoryOrigin {
@@ -509,6 +510,7 @@ class Heap {
 
   size_t NewSpaceSize();
   size_t NewSpaceCapacity() const;
+  size_t NewSpaceTargetCapacity() const;
 
   // Move len non-weak tagged elements from src_slot to dst_slot of dst_object.
   // The source and destination memory ranges can overlap.
@@ -2368,7 +2370,6 @@ class Heap {
   bool force_oom_ = false;
   bool force_gc_on_next_allocation_ = false;
   bool delay_sweeper_tasks_for_testing_ = false;
-  bool force_shared_gc_with_empty_stack_for_testing_ = false;
 
   UnorderedHeapObjectMap<HeapObject> retainer_;
   UnorderedHeapObjectMap<Root> retaining_root_;

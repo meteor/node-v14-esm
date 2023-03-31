@@ -267,10 +267,10 @@ RelocIterator::RelocIterator(Code code, ByteArray relocation_info,
           relocation_info.GetDataStartAddress(), mode_mask) {}
 
 RelocIterator::RelocIterator(Code code, InstructionStream instruction_stream,
-                             ByteArray relocation_info, Address constant_pool,
-                             int mode_mask)
+                             ByteArray relocation_info, int mode_mask)
     : RelocIterator(code, instruction_stream,
-                    instruction_stream.instruction_start(), constant_pool,
+                    instruction_stream.instruction_start(),
+                    code.constant_pool(instruction_stream),
                     relocation_info.GetDataEndAddress(),
                     relocation_info.GetDataStartAddress(), mode_mask) {}
 
@@ -283,7 +283,7 @@ RelocIterator::RelocIterator(const CodeReference code_reference, int mode_mask)
 RelocIterator::RelocIterator(EmbeddedData* embedded_data, Code code,
                              int mode_mask)
     : RelocIterator(code, code.instruction_stream(),
-                    embedded_data->InstructionStartOfBuiltin(code.builtin_id()),
+                    embedded_data->InstructionStartOf(code.builtin_id()),
                     code.constant_pool(),
                     code.relocation_start() + code.relocation_size(),
                     code.relocation_start(), mode_mask) {}
@@ -518,8 +518,8 @@ void RelocInfo::Verify(Isolate* isolate) {
       Address target = target_internal_reference();
       Address pc = target_internal_reference_address();
       Code lookup_result = isolate->heap()->FindCodeForInnerPointer(pc);
-      CHECK_GE(target, lookup_result.InstructionStart());
-      CHECK_LT(target, lookup_result.InstructionEnd());
+      CHECK_GE(target, lookup_result.instruction_start());
+      CHECK_LT(target, lookup_result.instruction_end());
       break;
     }
     case OFF_HEAP_TARGET: {

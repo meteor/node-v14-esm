@@ -6,6 +6,7 @@
 #define V8_HEAP_MARK_COMPACT_INL_H_
 
 #include "src/base/bits.h"
+#include "src/base/build_config.h"
 #include "src/codegen/assembler-inl.h"
 #include "src/heap/heap-inl.h"
 #include "src/heap/incremental-marking.h"
@@ -44,10 +45,20 @@ void MarkCompactCollector::MarkRootObject(Root root, HeapObject obj) {
   }
 }
 
-void MinorMarkCompactCollector::MarkRootObject(HeapObject obj) {
-  if (Heap::InYoungGeneration(obj) &&
-      non_atomic_marking_state()->TryMark(obj)) {
-    local_marking_worklists_->Push(obj);
+void MinorMarkCompactCollector::MarkRootObject(HeapObject heap_object) {
+  if (Heap::InYoungGeneration(heap_object) &&
+      non_atomic_marking_state()->TryMark(heap_object)) {
+    // Maps won't change in the atomic pause, so the map can be read without
+    // atomics.
+    Map map = Map::cast(*heap_object.map_slot());
+    if (Map::ObjectFieldsFrom(map.visitor_id()) == ObjectFields::kDataOnly) {
+      const int size = heap_object.SizeFromMap(map);
+      marking_state()->IncrementLiveBytes(
+          MemoryChunk::cast(BasicMemoryChunk::FromHeapObject(heap_object)),
+          ALIGN_TO_ALLOCATION_ALIGNMENT(size));
+    } else {
+      local_marking_worklists_->Push(heap_object);
+    }
   }
 }
 
@@ -209,10 +220,9 @@ void LiveObjectRange<mode>::iterator::AdvanceToNextValidObject() {
         }
       } else if ((mode == kGreyObjects || mode == kAllLiveObjects)) {
         object = HeapObject::FromAddress(addr);
-        Object map_object = object.map(cage_base, kAcquireLoad);
-        CHECK(map_object.IsMap(cage_base));
-        map = Map::cast(map_object);
-        DCHECK(map.IsMap(cage_base));
+        map = object.map(cage_base, kAcquireLoad);
+        // Map might be forwarded during GC.
+        DCHECK(MarkCompactCollector::IsMapOrForwarded(map));
         size = object.SizeFromMap(map);
         CHECK_LE(addr + ALIGN_TO_ALLOCATION_ALIGNMENT(size),
                  chunk_->area_end());
@@ -264,6 +274,43 @@ typename LiveObjectRange<mode>::iterator LiveObjectRange<mode>::end() {
 }
 
 Isolate* CollectorBase::isolate() { return heap()->isolate(); }
+
+template <typename TSlot>
+void YoungGenerationMainMarkingVisitor::VisitPointersImpl(HeapObject host,
+                                                          TSlot start,
+                                                          TSlot end) {
+  for (TSlot slot = start; slot < end; ++slot) {
+    typename TSlot::TObject target = *slot;
+    VisitObjectImpl(target);
+  }
+}
+
+V8_INLINE void YoungGenerationMarkingState::IncrementLiveBytes(
+    MemoryChunk* chunk, intptr_t by) {
+  DCHECK_IMPLIES(V8_COMPRESS_POINTERS_8GB_BOOL,
+                 IsAligned(by, kObjectAlignment8GbHeap));
+  const size_t hash =
+      (reinterpret_cast<size_t>(chunk) >> kPageSizeBits) & kEntriesMask;
+  auto& entry = live_bytes_data_[hash];
+  if (entry.first && entry.first != chunk) {
+    entry.first->live_byte_count_.fetch_add(entry.second,
+                                            std::memory_order_relaxed);
+    entry.first = chunk;
+    entry.second = 0;
+  } else {
+    entry.first = chunk;
+  }
+  entry.second += by;
+}
+
+YoungGenerationMarkingState::~YoungGenerationMarkingState() {
+  for (auto& pair : live_bytes_data_) {
+    if (pair.first) {
+      pair.first->live_byte_count_.fetch_add(pair.second,
+                                             std::memory_order_relaxed);
+    }
+  }
+}
 
 }  // namespace internal
 }  // namespace v8

@@ -449,9 +449,9 @@ size_t Isolate::HashIsolateForEmbeddedBlob() {
     // code cage base and code entry point. Other data fields must remain the
     // same.
     static_assert(Code::kCodePointerFieldsStrongEndOffset ==
-                  Code::kCodeEntryPointOffset);
+                  Code::kInstructionStartOffset);
 
-    static_assert(Code::kCodeEntryPointOffsetEnd + 1 == Code::kFlagsOffset);
+    static_assert(Code::kInstructionStartOffsetEnd + 1 == Code::kFlagsOffset);
     static_assert(Code::kFlagsOffsetEnd + 1 == Code::kBuiltinIdOffset);
     static_assert(Code::kBuiltinIdOffsetEnd + 1 ==
                   Code::kKindSpecificFlagsOffset);
@@ -473,7 +473,7 @@ size_t Isolate::HashIsolateForEmbeddedBlob() {
                   Code::kCodeCommentsOffsetOffset);
     static_assert(Code::kCodeCommentsOffsetOffsetEnd + 1 ==
                   Code::kUnalignedSize);
-    constexpr int kStartOffset = Code::kFlagsOffset;
+    static constexpr int kStartOffset = Code::kFlagsOffset;
 
     for (int j = kStartOffset; j < Code::kUnalignedSize; j++) {
       hash = base::hash_combine(hash, size_t{code_ptr[j]});
@@ -2011,7 +2011,7 @@ Object Isolate::UnwindAndFindHandler() {
         // Jump directly to the optimized frames return, to immediately fall
         // into the deoptimizer.
         const int offset =
-            static_cast<int>(frame->pc() - code.InstructionStart());
+            static_cast<int>(frame->pc() - code.instruction_start());
 
         // Compute the stack pointer from the frame pointer. This ensures that
         // argument slots on the stack are dropped as returning would.
@@ -2019,7 +2019,7 @@ Object Isolate::UnwindAndFindHandler() {
         Address return_sp = frame->fp() +
                             StandardFrameConstants::kFixedFrameSizeAboveFp -
                             code.stack_slots() * kSystemPointerSize;
-        return FoundHandler(Context(), code.InstructionStart(), offset,
+        return FoundHandler(Context(), code.instruction_start(), offset,
                             code.constant_pool(), return_sp, frame->fp(),
                             visited_frames);
       }
@@ -2027,7 +2027,7 @@ Object Isolate::UnwindAndFindHandler() {
 
       debug()->clear_restart_frame();
       Code code = *BUILTIN_CODE(this, RestartFrameTrampoline);
-      return FoundHandler(Context(), code.InstructionStart(), 0,
+      return FoundHandler(Context(), code.instruction_start(), 0,
                           code.constant_pool(), kNullAddress, frame->fp(),
                           visited_frames);
     }
@@ -2056,7 +2056,7 @@ Object Isolate::UnwindAndFindHandler() {
         thread_local_top()->handler_ = handler->next_address();
         Code code = frame->LookupCode();
         HandlerTable table(code);
-        Address instruction_start = code.InstructionStart();
+        Address instruction_start = code.instruction_start();
         int return_offset = static_cast<int>(frame->pc() - instruction_start);
         int handler_offset = table.LookupReturn(return_offset);
         DCHECK_NE(-1, handler_offset);
@@ -2128,7 +2128,7 @@ Object Isolate::UnwindAndFindHandler() {
           // If the target code is lazy deoptimized, we jump to the original
           // return address, but we make a note that we are throwing, so
           // that the deoptimizer can do the right thing.
-          offset = static_cast<int>(frame->pc() - code.InstructionStart());
+          offset = static_cast<int>(frame->pc() - code.instruction_start());
           set_deoptimizer_lazy_throw(true);
         }
 
@@ -2203,7 +2203,7 @@ Object Isolate::UnwindAndFindHandler() {
           // Patch the context register directly on the frame, so that we don't
           // need to have a context read + write in the baseline code.
           sp_frame->PatchContext(context);
-          return FoundHandler(Context(), code.InstructionStart(), pc_offset,
+          return FoundHandler(Context(), code.instruction_start(), pc_offset,
                               code.constant_pool(), return_sp, sp_frame->fp(),
                               visited_frames);
         } else {
@@ -2219,7 +2219,7 @@ Object Isolate::UnwindAndFindHandler() {
           // because at a minimum, an exit frame into C++ has to separate
           // it and the context in which this C++ code runs.
           CHECK_GE(visited_frames, 1);
-          return FoundHandler(context, code.InstructionStart(), 0,
+          return FoundHandler(context, code.instruction_start(), 0,
                               code.constant_pool(), return_sp, frame->fp(),
                               visited_frames - 1);
         }
@@ -2243,7 +2243,7 @@ Object Isolate::UnwindAndFindHandler() {
         // Reconstruct the stack pointer from the frame pointer.
         Address return_sp = js_frame->fp() - js_frame->GetSPToFPDelta();
         Code code = js_frame->LookupCode();
-        return FoundHandler(Context(), code.InstructionStart(), 0,
+        return FoundHandler(Context(), code.instruction_start(), 0,
                             code.constant_pool(), return_sp, frame->fp(),
                             visited_frames);
       }
@@ -3839,7 +3839,7 @@ void CreateOffHeapTrampolines(Isolate* isolate) {
   static_assert(Builtins::kAllBuiltinsAreIsolateIndependent);
   for (Builtin builtin = Builtins::kFirst; builtin <= Builtins::kLast;
        ++builtin) {
-    Address instruction_start = d.InstructionStartOfBuiltin(builtin);
+    Address instruction_start = d.InstructionStartOf(builtin);
     Handle<Code> trampoline = isolate->factory()->NewOffHeapTrampolineFor(
         builtins->code_handle(builtin), instruction_start);
 
@@ -4115,17 +4115,11 @@ void Isolate::VerifyStaticRoots() {
                 STATIC_ROOTS_FAILED_MSG);
   auto& roots = roots_table();
   RootIndex idx = RootIndex::kFirstReadOnlyRoot;
-  ReadOnlyPage* first_page = read_only_heap()->read_only_space()->pages()[0];
   for (Tagged_t cmp_ptr : StaticReadOnlyRootsPointerTable) {
     Address the_root = roots[idx];
     Address ptr =
         V8HeapCompressionScheme::DecompressTagged(cage_base(), cmp_ptr);
     CHECK_WITH_MSG(the_root == ptr, STATIC_ROOTS_FAILED_MSG);
-    // All roots must fit on first page, since only this page is guaranteed to
-    // have a stable offset from the cage base. If this ever changes we need
-    // to load more pages with predictable offset at
-    // ReadOnlySpace::InitFromMemoryDump.
-    CHECK(first_page->Contains(the_root));
     ++idx;
   }
 
@@ -4578,12 +4572,10 @@ bool Isolate::Init(SnapshotData* startup_snapshot_data,
         .store(*continuation);
   }
 #if V8_STATIC_ROOTS_BOOL
-  if (!create_heap_objects) {
-    // Protect the payload of wasm null.
-    page_allocator()->DecommitPages(
-        reinterpret_cast<void*>(factory()->wasm_null()->payload()),
-        WasmNull::kSize - kTaggedSize);
-  }
+  // Protect the payload of wasm null.
+  page_allocator()->DecommitPages(
+      reinterpret_cast<void*>(factory()->wasm_null()->payload()),
+      WasmNull::kSize - kTaggedSize);
 #endif  // V8_STATIC_ROOTS_BOOL
 #endif  // V8_ENABLE_WEBASSEMBLY
 
@@ -5603,13 +5595,12 @@ std::string Isolate::GetTurboCfgFileName(Isolate* isolate) {
 }
 
 // Heap::detached_contexts tracks detached contexts as pairs
-// (number of GC since the context was detached, the context).
+// (the context, number of GC since the context was detached).
 void Isolate::AddDetachedContext(Handle<Context> context) {
   HandleScope scope(this);
   Handle<WeakArrayList> detached_contexts = factory()->detached_contexts();
   detached_contexts = WeakArrayList::AddToEnd(
-      this, detached_contexts, MaybeObjectHandle(Smi::zero(), this),
-      MaybeObjectHandle::Weak(context));
+      this, detached_contexts, MaybeObjectHandle::Weak(context), Smi::zero());
   heap()->set_detached_contexts(*detached_contexts);
 }
 
@@ -5620,19 +5611,18 @@ void Isolate::CheckDetachedContextsAfterGC() {
   if (length == 0) return;
   int new_length = 0;
   for (int i = 0; i < length; i += 2) {
-    int mark_sweeps = detached_contexts->Get(i).ToSmi().value();
-    MaybeObject context = detached_contexts->Get(i + 1);
+    MaybeObject context = detached_contexts->Get(i);
     DCHECK(context->IsWeakOrCleared());
     if (!context->IsCleared()) {
-      detached_contexts->Set(
-          new_length, MaybeObject::FromSmi(Smi::FromInt(mark_sweeps + 1)));
-      detached_contexts->Set(new_length + 1, context);
+      int mark_sweeps = detached_contexts->Get(i + 1).ToSmi().value();
+      detached_contexts->Set(new_length, context);
+      detached_contexts->Set(new_length + 1, Smi::FromInt(mark_sweeps + 1));
       new_length += 2;
     }
   }
   detached_contexts->set_length(new_length);
   while (new_length < length) {
-    detached_contexts->Set(new_length, MaybeObject::FromSmi(Smi::zero()));
+    detached_contexts->Set(new_length, Smi::zero());
     ++new_length;
   }
 
@@ -5640,8 +5630,8 @@ void Isolate::CheckDetachedContextsAfterGC() {
     PrintF("%d detached contexts are collected out of %d\n",
            length - new_length, length);
     for (int i = 0; i < new_length; i += 2) {
-      int mark_sweeps = detached_contexts->Get(i).ToSmi().value();
-      MaybeObject context = detached_contexts->Get(i + 1);
+      MaybeObject context = detached_contexts->Get(i);
+      int mark_sweeps = detached_contexts->Get(i + 1).ToSmi().value();
       DCHECK(context->IsWeakOrCleared());
       if (mark_sweeps > 3) {
         PrintF("detached context %p\n survived %d GCs (leak?)\n",

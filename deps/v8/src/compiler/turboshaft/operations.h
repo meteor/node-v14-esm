@@ -24,6 +24,7 @@
 #include "src/common/globals.h"
 #include "src/compiler/common-operator.h"
 #include "src/compiler/globals.h"
+#include "src/compiler/simplified-operator.h"
 #include "src/compiler/turboshaft/deopt-data.h"
 #include "src/compiler/turboshaft/fast-hash.h"
 #include "src/compiler/turboshaft/index.h"
@@ -123,6 +124,7 @@ struct FrameStateOp;
   V(CheckTurboshaftTypeOf)           \
   V(ObjectIs)                        \
   V(FloatIs)                         \
+  V(ObjectIsNumericValue)            \
   V(ConvertToObject)                 \
   V(ConvertToObjectOrDeopt)          \
   V(ConvertObjectToPrimitive)        \
@@ -146,7 +148,11 @@ struct FrameStateOp;
   V(StringFromCodePointAt)           \
   V(StringSubstring)                 \
   V(StringEqual)                     \
-  V(StringComparison)
+  V(StringComparison)                \
+  V(ArgumentsLength)                 \
+  V(NewArgumentsElements)            \
+  V(CompareMaps)                     \
+  V(CheckMaps)
 
 enum class Opcode : uint8_t {
 #define ENUM_CONSTANT(Name) k##Name,
@@ -184,7 +190,7 @@ struct OpProperties {
   // guaranteed to be derived.
   const bool is_pure_no_allocation = !(can_read || can_write || can_allocate ||
                                        can_abort || is_block_terminator);
-  const bool is_required_when_unused =
+  const bool observable_when_unused =
       can_write || can_abort || is_block_terminator;
   // Operations that don't read, write, allocate and aren't block terminators
   // can be eliminated via value numbering, which means that if there are two
@@ -2485,13 +2491,22 @@ std::ostream& operator<<(std::ostream& os, ObjectIsOp::Kind kind);
 std::ostream& operator<<(std::ostream& os,
                          ObjectIsOp::InputAssumptions input_assumptions);
 
+enum class NumericKind : uint8_t {
+  kFloat64Hole,
+  kFinite,
+  kInteger,
+  kSafeInteger,
+  kMinusZero,
+  kNaN,
+};
+std::ostream& operator<<(std::ostream& os, NumericKind kind);
+
 struct FloatIsOp : FixedArityOperationT<1, FloatIsOp> {
-  enum class Kind : uint8_t {
-    kNaN,
-  };
-  Kind kind;
+  NumericKind kind;
   FloatRepresentation input_rep;
 
+  FloatIsOp(OpIndex input, NumericKind kind, FloatRepresentation input_rep)
+      : Base(input), kind(kind), input_rep(input_rep) {}
   static constexpr OpProperties properties = OpProperties::PureNoAllocation();
   base::Vector<const RegisterRepresentation> outputs_rep() const {
     return RepVector<RegisterRepresentation::Word32()>();
@@ -2499,14 +2514,32 @@ struct FloatIsOp : FixedArityOperationT<1, FloatIsOp> {
 
   OpIndex input() const { return Base::input(0); }
 
-  FloatIsOp(OpIndex input, Kind kind, FloatRepresentation input_rep)
-      : Base(input), kind(kind), input_rep(input_rep) {}
   void Validate(const Graph& graph) const {
     DCHECK(ValidOpInputRep(graph, input(), input_rep));
   }
   auto options() const { return std::tuple{kind, input_rep}; }
 };
-std::ostream& operator<<(std::ostream& os, FloatIsOp::Kind kind);
+
+struct ObjectIsNumericValueOp
+    : FixedArityOperationT<1, ObjectIsNumericValueOp> {
+  NumericKind kind;
+  FloatRepresentation input_rep;
+
+  ObjectIsNumericValueOp(OpIndex input, NumericKind kind,
+                         FloatRepresentation input_rep)
+      : Base(input), kind(kind), input_rep(input_rep) {}
+  static constexpr OpProperties properties = OpProperties::PureNoAllocation();
+  base::Vector<const RegisterRepresentation> outputs_rep() const {
+    return RepVector<RegisterRepresentation::Word32()>();
+  }
+
+  OpIndex input() const { return Base::input(0); }
+
+  void Validate(const Graph& graph) const {
+    DCHECK(ValidOpInputRep(graph, input(), RegisterRepresentation::Tagged()));
+  }
+  auto options() const { return std::tuple{kind, input_rep}; }
+};
 
 struct ConvertToObjectOp : FixedArityOperationT<1, ConvertToObjectOp> {
   enum class Kind : uint8_t {
@@ -3240,6 +3273,105 @@ struct StringComparisonOp : FixedArityOperationT<2, StringComparisonOp> {
   auto options() const { return std::tuple{kind}; }
 };
 std::ostream& operator<<(std::ostream& os, StringComparisonOp::Kind kind);
+
+struct ArgumentsLengthOp : FixedArityOperationT<0, ArgumentsLengthOp> {
+  enum class Kind : uint8_t {
+    kArguments,
+    kRest,
+  };
+  Kind kind;
+  int formal_parameter_count =
+      0;  // This field is unused for kind == kArguments.
+
+  static constexpr OpProperties properties = OpProperties::PureNoAllocation();
+  base::Vector<const RegisterRepresentation> outputs_rep() const {
+    return RepVector<RegisterRepresentation::Tagged()>();
+  }
+
+  explicit ArgumentsLengthOp(Kind kind, int formal_parameter_count)
+      : Base(), kind(kind), formal_parameter_count(formal_parameter_count) {
+    DCHECK_IMPLIES(kind == Kind::kArguments, formal_parameter_count == 0);
+  }
+
+  void Validate(const Graph& graph) const {}
+
+  auto options() const { return std::tuple{kind, formal_parameter_count}; }
+};
+std::ostream& operator<<(std::ostream& os, ArgumentsLengthOp::Kind kind);
+
+struct NewArgumentsElementsOp
+    : FixedArityOperationT<1, NewArgumentsElementsOp> {
+  CreateArgumentsType type;
+  int formal_parameter_count;
+
+  static constexpr OpProperties properties = OpProperties::PureMayAllocate();
+  base::Vector<const RegisterRepresentation> outputs_rep() const {
+    return RepVector<RegisterRepresentation::Tagged()>();
+  }
+
+  OpIndex arguments_count() const { return Base::input(0); }
+
+  NewArgumentsElementsOp(OpIndex arguments_count, CreateArgumentsType type,
+                         int formal_parameter_count)
+      : Base(arguments_count),
+        type(type),
+        formal_parameter_count(formal_parameter_count) {}
+
+  void Validate(const Graph& graph) const {
+    DCHECK(ValidOpInputRep(graph, arguments_count(),
+                           RegisterRepresentation::Tagged()));
+  }
+
+  auto options() const { return std::tuple{type, formal_parameter_count}; }
+};
+
+struct CompareMapsOp : FixedArityOperationT<1, CompareMapsOp> {
+  ZoneRefSet<Map> maps;
+
+  static constexpr OpProperties properties = OpProperties::Reading();
+  base::Vector<const RegisterRepresentation> outputs_rep() const {
+    return RepVector<RegisterRepresentation::Word32()>();
+  }
+
+  OpIndex heap_object() const { return Base::input(0); }
+
+  CompareMapsOp(OpIndex heap_object, ZoneRefSet<Map> maps)
+      : Base(heap_object), maps(std::move(maps)) {}
+
+  void Validate(const Graph& graph) const {
+    DCHECK(ValidOpInputRep(graph, heap_object(),
+                           RegisterRepresentation::Tagged()));
+  }
+
+  auto options() const { return std::tuple{maps}; }
+};
+
+struct CheckMapsOp : FixedArityOperationT<2, CheckMapsOp> {
+  ZoneRefSet<Map> maps;
+  CheckMapsFlags flags;
+  FeedbackSource feedback;
+
+  static constexpr OpProperties properties = OpProperties::AnySideEffects();
+  base::Vector<const RegisterRepresentation> outputs_rep() const { return {}; }
+
+  OpIndex heap_object() const { return Base::input(0); }
+  OpIndex frame_state() const { return Base::input(1); }
+
+  CheckMapsOp(OpIndex heap_object, OpIndex frame_state, ZoneRefSet<Map> maps,
+              CheckMapsFlags flags, const FeedbackSource& feedback)
+      : Base(heap_object, frame_state),
+        maps(std::move(maps)),
+        flags(flags),
+        feedback(feedback) {}
+
+  void Validate(const Graph& graph) const {
+    DCHECK(ValidOpInputRep(graph, heap_object(),
+                           RegisterRepresentation::Tagged()));
+    DCHECK(Get(graph, frame_state()).Is<FrameStateOp>());
+  }
+
+  auto options() const { return std::tuple{maps, flags, feedback}; }
+};
 
 #define OPERATION_PROPERTIES_CASE(Name) Name##Op::PropertiesIfStatic(),
 static constexpr base::Optional<OpProperties>

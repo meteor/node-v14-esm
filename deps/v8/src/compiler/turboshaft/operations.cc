@@ -761,9 +761,19 @@ std::ostream& operator<<(std::ostream& os,
   }
 }
 
-std::ostream& operator<<(std::ostream& os, FloatIsOp::Kind kind) {
+std::ostream& operator<<(std::ostream& os, NumericKind kind) {
   switch (kind) {
-    case FloatIsOp::Kind::kNaN:
+    case NumericKind::kFloat64Hole:
+      return os << "Float64Hole";
+    case NumericKind::kFinite:
+      return os << "Finite";
+    case NumericKind::kInteger:
+      return os << "Integer";
+    case NumericKind::kSafeInteger:
+      return os << "SafeInteger";
+    case NumericKind::kMinusZero:
+      return os << "MinusZero";
+    case NumericKind::kNaN:
       return os << "NaN";
   }
 }
@@ -990,6 +1000,15 @@ std::ostream& operator<<(std::ostream& os, StringComparisonOp::Kind kind) {
       return os << "LessThan";
     case StringComparisonOp::Kind::kLessThanOrEqual:
       return os << "LessThanOrEqual";
+  }
+}
+
+std::ostream& operator<<(std::ostream& os, ArgumentsLengthOp::Kind kind) {
+  switch (kind) {
+    case ArgumentsLengthOp::Kind::kArguments:
+      return os << "Arguments";
+    case ArgumentsLengthOp::Kind::kRest:
+      return os << "Rest";
   }
 }
 

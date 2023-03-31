@@ -1173,21 +1173,21 @@ void MacroAssembler::ShiftRightAlgPair(Register dst_low, Register dst_high,
 #endif
 
 void MacroAssembler::LoadConstantPoolPointerRegisterFromCodeTargetAddress(
-    Register code_target_address) {
+    Register code_target_address, Register scratch1, Register scratch2) {
   // Builtins do not use the constant pool (see is_constant_pool_available).
   static_assert(InstructionStream::kOnHeapBodyIsContiguous);
 
-  // TODO(miladfarca): Pass in scratch registers.
-  LoadU64(ip, FieldMemOperand(code_target_address, Code::kCodeEntryPointOffset),
-          r0);
-  LoadU32(r0,
+  LoadU64(scratch2,
+          FieldMemOperand(code_target_address, Code::kInstructionStartOffset),
+          scratch1);
+  LoadU32(scratch1,
           FieldMemOperand(code_target_address, Code::kInstructionSizeOffset),
-          r0);
-  add(ip, r0, ip);
+          scratch1);
+  add(scratch2, scratch1, scratch2);
   LoadU32(kConstantPoolRegister,
           FieldMemOperand(code_target_address, Code::kConstantPoolOffsetOffset),
-          r0);
-  add(kConstantPoolRegister, ip, kConstantPoolRegister);
+          scratch1);
+  add(kConstantPoolRegister, scratch2, kConstantPoolRegister);
 }
 
 void MacroAssembler::LoadPC(Register dst) {
@@ -2025,7 +2025,7 @@ void TailCallOptimizedCodeSlot(MacroAssembler* masm,
   __ ReplaceClosureCodeWithOptimizedCode(optimized_code_entry, closure, scratch,
                                          r8);
   static_assert(kJavaScriptCallCodeStartRegister == r5, "ABI mismatch");
-  __ LoadCodeEntry(r5, optimized_code_entry);
+  __ LoadCodeInstructionStart(r5, optimized_code_entry);
   __ Jump(r5);
 
   // Optimized code slot contains deoptimized code or code is cleared and
@@ -5085,22 +5085,23 @@ MemOperand MacroAssembler::EntryFromBuiltinAsOperand(Builtin builtin) {
                     IsolateData::BuiltinEntrySlotOffset(builtin));
 }
 
-void MacroAssembler::LoadCodeEntry(Register destination, Register code_object) {
+void MacroAssembler::LoadCodeInstructionStart(Register destination,
+                                              Register code_object) {
   ASM_CODE_COMMENT(this);
   LoadU64(destination,
-          FieldMemOperand(code_object, Code::kCodeEntryPointOffset), r0);
+          FieldMemOperand(code_object, Code::kInstructionStartOffset), r0);
 }
 
 void MacroAssembler::CallCodeObject(Register code_object) {
   ASM_CODE_COMMENT(this);
-  LoadCodeEntry(code_object, code_object);
+  LoadCodeInstructionStart(code_object, code_object);
   Call(code_object);
 }
 
 void MacroAssembler::JumpCodeObject(Register code_object, JumpMode jump_mode) {
   ASM_CODE_COMMENT(this);
   DCHECK_EQ(JumpMode::kJump, jump_mode);
-  LoadCodeEntry(code_object, code_object);
+  LoadCodeInstructionStart(code_object, code_object);
   Jump(code_object);
 }
 

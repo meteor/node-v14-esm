@@ -34,6 +34,7 @@
 #include "src/compiler/turboshaft/graph.h"
 #include "src/compiler/turboshaft/operations.h"
 #include "src/compiler/turboshaft/representations.h"
+#include "src/objects/map.h"
 #include "src/zone/zone-containers.h"
 
 namespace v8::internal::compiler::turboshaft {
@@ -665,9 +666,43 @@ OpIndex GraphBuilder::Process(
       return __ TaggedBitcast(Map(node->InputAt(0)),
                               RegisterRepresentation::PointerSized(),
                               RegisterRepresentation::Tagged());
-    case IrOpcode::kNumberIsNaN:
-      return __ FloatIs(Map(node->InputAt(0)), FloatIsOp::Kind::kNaN,
+    case IrOpcode::kNumberIsFinite:
+      return __ FloatIs(Map(node->InputAt(0)), NumericKind::kFinite,
                         FloatRepresentation::Float64());
+    case IrOpcode::kNumberIsInteger:
+      return __ FloatIs(Map(node->InputAt(0)), NumericKind::kInteger,
+                        FloatRepresentation::Float64());
+    case IrOpcode::kNumberIsSafeInteger:
+      return __ FloatIs(Map(node->InputAt(0)), NumericKind::kSafeInteger,
+                        FloatRepresentation::Float64());
+    case IrOpcode::kNumberIsFloat64Hole:
+      return __ FloatIs(Map(node->InputAt(0)), NumericKind::kFloat64Hole,
+                        FloatRepresentation::Float64());
+    case IrOpcode::kNumberIsMinusZero:
+      return __ FloatIs(Map(node->InputAt(0)), NumericKind::kMinusZero,
+                        FloatRepresentation::Float64());
+    case IrOpcode::kNumberIsNaN:
+      return __ FloatIs(Map(node->InputAt(0)), NumericKind::kNaN,
+                        FloatRepresentation::Float64());
+    case IrOpcode::kObjectIsMinusZero:
+      return __ ObjectIsNumericValue(Map(node->InputAt(0)),
+                                     NumericKind::kMinusZero,
+                                     FloatRepresentation::Float64());
+    case IrOpcode::kObjectIsNaN:
+      return __ ObjectIsNumericValue(Map(node->InputAt(0)), NumericKind::kNaN,
+                                     FloatRepresentation::Float64());
+    case IrOpcode::kObjectIsFiniteNumber:
+      return __ ObjectIsNumericValue(Map(node->InputAt(0)),
+                                     NumericKind::kFinite,
+                                     FloatRepresentation::Float64());
+    case IrOpcode::kObjectIsInteger:
+      return __ ObjectIsNumericValue(Map(node->InputAt(0)),
+                                     NumericKind::kInteger,
+                                     FloatRepresentation::Float64());
+    case IrOpcode::kObjectIsSafeInteger:
+      return __ ObjectIsNumericValue(Map(node->InputAt(0)),
+                                     NumericKind::kSafeInteger,
+                                     FloatRepresentation::Float64());
 
 #define OBJECT_IS_CASE(kind)                                             \
   case IrOpcode::kObjectIs##kind: {                                      \
@@ -1436,7 +1471,7 @@ OpIndex GraphBuilder::Process(
 
           // Check if {lhs} is kMinInt and {rhs} is -1, in which case we'd have
           // to return -kMinInt, which is not representable as Word32.
-          IF_UNLIKELY(__ Word32Equal(lhs, kMinInt)) {
+          IF(UNLIKELY(__ Word32Equal(lhs, kMinInt))) {
             __ DeoptimizeIf(__ Word32Equal(rhs, -1), dominating_frame_state,
                             DeoptimizeReason::kOverflow, FeedbackSource{});
           }
@@ -1464,7 +1499,7 @@ OpIndex GraphBuilder::Process(
                       DeoptimizeReason::kDivisionByZero, FeedbackSource{});
       // Check if {lhs} is kMinInt64 and {rhs} is -1, in which case we'd have
       // to return -kMinInt64, which is not representable as Word64.
-      IF_UNLIKELY(__ Word64Equal(lhs, std::numeric_limits<int64_t>::min())) {
+      IF(UNLIKELY(__ Word64Equal(lhs, std::numeric_limits<int64_t>::min()))) {
         __ DeoptimizeIf(__ Word64Equal(rhs, int64_t{-1}),
                         dominating_frame_state, DeoptimizeReason::kOverflow,
                         FeedbackSource{});
@@ -1585,7 +1620,7 @@ OpIndex GraphBuilder::Process(
 
       // While the mod-result cannot overflow, the underlying instruction is
       // `idiv` and will trap when the accompanying div-result overflows.
-      IF_UNLIKELY(__ Word64Equal(lhs, std::numeric_limits<int64_t>::min())) {
+      IF(UNLIKELY(__ Word64Equal(lhs, std::numeric_limits<int64_t>::min()))) {
         __ DeoptimizeIf(__ Word64Equal(rhs, int64_t{-1}),
                         dominating_frame_state, DeoptimizeReason::kOverflow,
                         FeedbackSource{});
@@ -1680,6 +1715,37 @@ OpIndex GraphBuilder::Process(
     case IrOpcode::kStringLessThanOrEqual:
       return __ StringLessThanOrEqual(Map(node->InputAt(0)),
                                       Map(node->InputAt(1)));
+
+    case IrOpcode::kArgumentsLength:
+      return __ ArgumentsLength();
+    case IrOpcode::kRestLength:
+      return __ RestLength(FormalParameterCountOf(node->op()));
+
+    case IrOpcode::kNewArgumentsElements: {
+      const auto& p = NewArgumentsElementsParametersOf(node->op());
+      // EffectControlLinearizer used to use `node->op()->properties()` to
+      // construct the builtin call descriptor for this operation. However, this
+      // always seemed to be `kEliminatable` so the Turboshaft
+      // BuiltinCallDescriptor's for those builtins have this property
+      // hard-coded.
+      DCHECK_EQ(node->op()->properties(), Operator::kEliminatable);
+      return __ NewArgumentsElements(Map(node->InputAt(0)), p.arguments_type(),
+                                     p.formal_parameter_count());
+    }
+
+    case IrOpcode::kCompareMaps: {
+      const ZoneRefSet<v8::internal::Map>& maps =
+          CompareMapsParametersOf(node->op());
+      return __ CompareMaps(Map(node->InputAt(0)), maps);
+    }
+
+    case IrOpcode::kCheckMaps: {
+      DCHECK(dominating_frame_state.valid());
+      const auto& p = CheckMapsParametersOf(node->op());
+      __ CheckMaps(Map(node->InputAt(0)), dominating_frame_state, p.maps(),
+                   p.flags(), p.feedback());
+      return OpIndex{};
+    }
 
     case IrOpcode::kBeginRegion:
       return OpIndex::Invalid();
