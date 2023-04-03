@@ -1,4 +1,24 @@
-# Node.js
+# Fork Meteor.js Node.js 14 ESM (Extended Support Maintenance)
+
+### Generate Tarballs
+
+We are using following steps to generate Windows and Linux tarballs:
+
+For  `Linux`:
+
+```
+./configure --prefix="/path/" --with-intl=full-icu && make -j4 install
+```
+
+For `Windows`:
+
+```
+ choco install nasm
+```
+```
+ ./vcbuild x64 release package full-icu 
+```
+
 
 Node.js is an open-source, cross-platform JavaScript runtime environment.
 
