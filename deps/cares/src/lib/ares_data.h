@@ -1,6 +1,3 @@
-#ifndef __ARES_DATA_H
-#define __ARES_DATA_H
-
 
 /* Copyright (C) 2009-2013 by Daniel Stenberg
  *
@@ -77,5 +74,3 @@ struct ares_data {
 
 void *ares_malloc_data(ares_datatype type);
 
-
-#endif /* __ARES_DATA_H */

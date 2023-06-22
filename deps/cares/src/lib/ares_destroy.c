@@ -38,8 +38,6 @@ void ares_destroy_options(struct ares_options *options)
     ares_free(options->lookups);
   if(options->resolvconf_path)
     ares_free(options->resolvconf_path);
-  if(options->hosts_path)
-    ares_free(options->hosts_path);
 }
 
 void ares_destroy(ares_channel channel)
@@ -91,12 +89,6 @@ void ares_destroy(ares_channel channel)
 
   if (channel->resolvconf_path)
     ares_free(channel->resolvconf_path);
-
-  if (channel->hosts_path)
-    ares_free(channel->hosts_path);
-
-  if (channel->rand_state)
-    ares__destroy_rand_state(channel->rand_state);
 
   ares_free(channel);
 }
