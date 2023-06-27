@@ -33,10 +33,11 @@ struct llhttp__internal_s {
   uint8_t http_major;
   uint8_t http_minor;
   uint8_t header_state;
-  uint16_t flags;
+  uint8_t lenient_flags;
   uint8_t upgrade;
-  uint16_t status_code;
   uint8_t finish;
+  uint16_t flags;
+  uint16_t status_code;
   void* settings;
 };
 
