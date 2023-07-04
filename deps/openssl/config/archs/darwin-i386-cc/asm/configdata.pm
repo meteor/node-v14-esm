@@ -62,7 +62,7 @@ our %config = (
   options => "enable-ssl-trace no-afalgeng no-asan no-buildtest-c++ no-comp no-crypto-mdebug no-crypto-mdebug-backtrace no-devcryptoeng no-dynamic-engine no-ec_nistp_64_gcc_128 no-egd no-external-tests no-fuzz-afl no-fuzz-libfuzzer no-heartbeats no-md2 no-msan no-rc5 no-sctp no-shared no-ssl3 no-ssl3-method no-ubsan no-unit-test no-weak-ssl-ciphers no-zlib no-zlib-dynamic",
   perl_archname => "x86_64-linux-gnu-thread-multi",
   perl_cmd => "/usr/bin/perl",
-  perl_version => "5.30.0",
+  perl_version => "5.34.0",
   perlargv => [ "no-comp", "no-shared", "no-afalgeng", "enable-ssl-trace", "darwin-i386-cc" ],
   perlenv => {
       "AR" => undef,
@@ -104,15 +104,15 @@ our %config = (
   processor => "",
   rc4_int => "unsigned int",
   sdirs => [ "objects", "md4", "md5", "sha", "mdc2", "hmac", "ripemd", "whrlpool", "poly1305", "blake2", "siphash", "sm3", "des", "aes", "rc2", "rc4", "idea", "aria", "bf", "cast", "camellia", "seed", "sm4", "chacha", "modes", "bn", "ec", "rsa", "dsa", "dh", "sm2", "dso", "engine", "buffer", "bio", "stack", "lhash", "rand", "err", "evp", "asn1", "pem", "x509", "x509v3", "conf", "txt_db", "pkcs7", "pkcs12", "ocsp", "ui", "cms", "ts", "srp", "cmac", "ct", "async", "kdf", "store" ],
-  shlib_major => "1",
-  shlib_minor => "1",
+  shlib_major => "81",
+  shlib_minor => "1.1",
   shlib_version_history => "",
-  shlib_version_number => "1.1",
+  shlib_version_number => "81.1.1",
   sourcedir => ".",
   target => "darwin-i386-cc",
   tdirs => [ "ossl_shim" ],
-  version => "1.1.1t",
-  version_num => "0x1010114fL",
+  version => "1.1.1u+quic",
+  version_num => "0x1010115fL",
 );
 
 our %target = (
@@ -268,6 +268,7 @@ our @disablables = (
   "poly1305",
   "posix-io",
   "psk",
+  "quic",
   "rc2",
   "rc4",
   "rc5",
@@ -1945,7 +1946,6 @@ our %unified_info = (
                             "crypto/bn/bn_word.o",
                             "crypto/bn/bn_x931p.o",
                             "crypto/bn/co-586.o",
-                            "crypto/bn/rsa_sup_mul.o",
                             "crypto/bn/x86-gf2m.o",
                             "crypto/bn/x86-mont.o",
                         ],
@@ -3169,6 +3169,7 @@ our %unified_info = (
                             "ssl/ssl_init.o",
                             "ssl/ssl_lib.o",
                             "ssl/ssl_mcnf.o",
+                            "ssl/ssl_quic.o",
                             "ssl/ssl_rsa.o",
                             "ssl/ssl_sess.o",
                             "ssl/ssl_stat.o",
@@ -3219,6 +3220,7 @@ our %unified_info = (
                             "ssl/statem/statem_clnt.o",
                             "ssl/statem/statem_dtls.o",
                             "ssl/statem/statem_lib.o",
+                            "ssl/statem/statem_quic.o",
                             "ssl/statem/statem_srvr.o",
                         ],
                     "products" =>
@@ -5635,11 +5637,6 @@ our %unified_info = (
             "crypto/bn/mips-mont.o" =>
                 [
                     "crypto",
-                ],
-            "crypto/bn/rsa_sup_mul.o" =>
-                [
-                    ".",
-                    "include",
                 ],
             "crypto/bn/sparct4-mont.o" =>
                 [
@@ -8534,6 +8531,11 @@ our %unified_info = (
                     ".",
                     "include",
                 ],
+            "ssl/ssl_quic.o" =>
+                [
+                    ".",
+                    "include",
+                ],
             "ssl/ssl_rsa.o" =>
                 [
                     ".",
@@ -8595,6 +8597,11 @@ our %unified_info = (
                     "include",
                 ],
             "ssl/statem/statem_lib.o" =>
+                [
+                    ".",
+                    "include",
+                ],
+            "ssl/statem/statem_quic.o" =>
                 [
                     ".",
                     "include",
@@ -10574,10 +10581,6 @@ our %unified_info = (
             "crypto/bn/co-586.o" =>
                 [
                     "crypto/bn/co-586.s",
-                ],
-            "crypto/bn/rsa_sup_mul.o" =>
-                [
-                    "crypto/bn/rsa_sup_mul.c",
                 ],
             "crypto/bn/x86-gf2m.o" =>
                 [
@@ -12845,7 +12848,6 @@ our %unified_info = (
                     "crypto/bn/bn_word.o",
                     "crypto/bn/bn_x931p.o",
                     "crypto/bn/co-586.o",
-                    "crypto/bn/rsa_sup_mul.o",
                     "crypto/bn/x86-gf2m.o",
                     "crypto/bn/x86-mont.o",
                     "crypto/buffer/buf_err.o",
@@ -13378,6 +13380,7 @@ our %unified_info = (
                     "ssl/ssl_init.o",
                     "ssl/ssl_lib.o",
                     "ssl/ssl_mcnf.o",
+                    "ssl/ssl_quic.o",
                     "ssl/ssl_rsa.o",
                     "ssl/ssl_sess.o",
                     "ssl/ssl_stat.o",
@@ -13391,6 +13394,7 @@ our %unified_info = (
                     "ssl/statem/statem_clnt.o",
                     "ssl/statem/statem_dtls.o",
                     "ssl/statem/statem_lib.o",
+                    "ssl/statem/statem_quic.o",
                     "ssl/statem/statem_srvr.o",
                     "ssl/t1_enc.o",
                     "ssl/t1_lib.o",
@@ -13498,6 +13502,10 @@ our %unified_info = (
                 [
                     "ssl/ssl_mcnf.c",
                 ],
+            "ssl/ssl_quic.o" =>
+                [
+                    "ssl/ssl_quic.c",
+                ],
             "ssl/ssl_rsa.o" =>
                 [
                     "ssl/ssl_rsa.c",
@@ -13549,6 +13557,10 @@ our %unified_info = (
             "ssl/statem/statem_lib.o" =>
                 [
                     "ssl/statem/statem_lib.c",
+                ],
+            "ssl/statem/statem_quic.o" =>
+                [
+                    "ssl/statem/statem_quic.c",
                 ],
             "ssl/statem/statem_srvr.o" =>
                 [
